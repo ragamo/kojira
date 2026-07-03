@@ -222,36 +222,60 @@ fn render_board_tab(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     };
 
-    let label_y = area.y + 1;
-    let label = "Hide sub-tasks: ";
-    let on_x = area.x + 3 + label.len() as u16;
-    let off_x = on_x + 5 + 1;
+    let cursor = |selected: bool| {
+        if selected {
+            Span::styled(" ▸ ", Style::default().fg(t.accent))
+        } else {
+            Span::raw("   ")
+        }
+    };
+
+    // Field 0: Hide sub-tasks
+    let y0 = area.y + 1;
+    let label0 = "Hide sub-tasks:    ";
+    let on0_x = area.x + 3 + label0.len() as u16;
+    let off0_x = on0_x + 5 + 1;
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" ▸ ", Style::default().fg(t.accent)),
-            Span::styled(label, Style::default().fg(t.text)),
+            cursor(app.settings_board_field == 0),
+            Span::styled(label0, Style::default().fg(t.text)),
             Span::styled(" on ", val_style(app.board_hide_subtasks)),
             Span::raw(" "),
             Span::styled(" off ", val_style(!app.board_hide_subtasks)),
         ])),
-        Rect {
-            x: area.x,
-            y: label_y,
-            width: area.width.saturating_sub(2),
-            height: 1,
-        },
+        Rect { x: area.x, y: y0, width: area.width.saturating_sub(2), height: 1 },
     );
-    app.settings_board_on_area = Some(Rect { x: on_x, y: label_y, width: 4, height: 1 });
-    app.settings_board_off_area = Some(Rect { x: off_x, y: label_y, width: 5, height: 1 });
+    app.settings_board_on_area = Some(Rect { x: on0_x, y: y0, width: 4, height: 1 });
+    app.settings_board_off_area = Some(Rect { x: off0_x, y: y0, width: 5, height: 1 });
+
+    // Field 1: Hide backlog column
+    let y1 = area.y + 2;
+    let label1 = "Hide backlog col:  ";
+    let on1_x = area.x + 3 + label1.len() as u16;
+    let off1_x = on1_x + 5 + 1;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            cursor(app.settings_board_field == 1),
+            Span::styled(label1, Style::default().fg(t.text)),
+            Span::styled(" on ", val_style(app.board_hide_backlog_col)),
+            Span::raw(" "),
+            Span::styled(" off ", val_style(!app.board_hide_backlog_col)),
+        ])),
+        Rect { x: area.x, y: y1, width: area.width.saturating_sub(2), height: 1 },
+    );
+    app.settings_board_backlog_on_area = Some(Rect { x: on1_x, y: y1, width: 4, height: 1 });
+    app.settings_board_backlog_off_area = Some(Rect { x: off1_x, y: y1, width: 5, height: 1 });
 
     let hint_area = Rect {
         x: area.x + 3,
-        y: area.y + 3,
+        y: area.y + 4,
         width: area.width.saturating_sub(4),
         height: 1,
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
+            Span::styled("↑↓", Style::default().fg(t.accent)),
+            Span::styled(" field  ", Style::default().fg(t.text_dim)),
             Span::styled("space", Style::default().fg(t.accent)),
             Span::styled(" toggle  ", Style::default().fg(t.text_dim)),
             Span::styled("↵", Style::default().fg(t.accent)),

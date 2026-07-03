@@ -115,9 +115,13 @@ pub struct App {
     pub settings_header_hard_area: Option<Rect>,
     pub settings_board_on_area: Option<Rect>,
     pub settings_board_off_area: Option<Rect>,
+    pub settings_board_backlog_on_area: Option<Rect>,
+    pub settings_board_backlog_off_area: Option<Rect>,
     pub settings_apply_area: Option<Rect>,
     pub settings_close_area: Option<Rect>,
     pub board_hide_subtasks: bool,
+    pub board_hide_backlog_col: bool,
+    pub settings_board_field: usize,
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
@@ -216,9 +220,13 @@ impl App {
             settings_header_hard_area: None,
             settings_board_on_area: None,
             settings_board_off_area: None,
+            settings_board_backlog_on_area: None,
+            settings_board_backlog_off_area: None,
             settings_apply_area: None,
             settings_close_area: None,
             board_hide_subtasks: config.ui.board_hide_subtasks.unwrap_or(false),
+            board_hide_backlog_col: config.ui.board_hide_backlog_col.unwrap_or(false),
+            settings_board_field: 0,
             theme_selected,
             theme_confirmed: theme_selected,
             header_bg_confirmed: header_bg_soft,
@@ -304,9 +312,8 @@ impl App {
                             }
                         });
                         if !placed {
-                            // Fallback: match by column name ~= status name
                             let status_name = &issue.fields.status.name;
-                            let placed_by_name = tab.columns.iter_mut().any(|col| {
+                            let _ = tab.columns.iter_mut().any(|col| {
                                 if col.name.eq_ignore_ascii_case(status_name) {
                                     col.issues.push(issue.clone());
                                     true
@@ -314,13 +321,9 @@ impl App {
                                     false
                                 }
                             });
-                            if !placed_by_name {
-                                if let Some(col) = tab.columns.first_mut() {
-                                    col.issues.push(issue.clone());
-                                }
-                            }
                         }
                     }
+
 
                     tab.loading = false;
                     tab.error = None;
@@ -465,8 +468,21 @@ impl App {
             KeyCode::Char(' ') if self.settings_selected == 1 => {
                 self.header_bg_soft = !self.header_bg_soft;
             }
+            KeyCode::Up | KeyCode::Char('k') if self.settings_selected == 2 => {
+                if self.settings_board_field > 0 {
+                    self.settings_board_field -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.settings_selected == 2 => {
+                if self.settings_board_field < 1 {
+                    self.settings_board_field += 1;
+                }
+            }
             KeyCode::Char(' ') if self.settings_selected == 2 => {
-                self.board_hide_subtasks = !self.board_hide_subtasks;
+                match self.settings_board_field {
+                    0 => self.board_hide_subtasks = !self.board_hide_subtasks,
+                    _ => self.board_hide_backlog_col = !self.board_hide_backlog_col,
+                }
             }
             KeyCode::Enter => {
                 self.apply_settings();
@@ -724,6 +740,7 @@ impl App {
         self.config.ui.header_bg =
             Some(if self.header_bg_soft { "soft" } else { "hard" }.to_string());
         self.config.ui.board_hide_subtasks = Some(self.board_hide_subtasks);
+        self.config.ui.board_hide_backlog_col = Some(self.board_hide_backlog_col);
         let _ = config::save_config(&self.config);
         self.settings_open = false;
         self.focus = FocusLayer::Main;
@@ -888,6 +905,14 @@ impl App {
             }
             if hit(pos, self.settings_board_off_area) {
                 self.board_hide_subtasks = false;
+                return;
+            }
+            if hit(pos, self.settings_board_backlog_on_area) {
+                self.board_hide_backlog_col = true;
+                return;
+            }
+            if hit(pos, self.settings_board_backlog_off_area) {
+                self.board_hide_backlog_col = false;
                 return;
             }
         }

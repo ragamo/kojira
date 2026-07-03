@@ -78,11 +78,18 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
     }
 
     let hide_subtasks = app.board_hide_subtasks;
+    let hide_backlog = app.board_hide_backlog_col;
 
-    let col_count = tab.columns.len() as u16;
+    let visible_columns: Vec<&_> = tab
+        .columns
+        .iter()
+        .filter(|col| !(hide_backlog && col.name.eq_ignore_ascii_case("backlog")))
+        .collect();
+
+    let col_count = visible_columns.len() as u16;
     let col_width = area.width / col_count.max(1);
 
-    for (i, col) in tab.columns.iter().enumerate() {
+    for (i, col) in visible_columns.iter().enumerate() {
         let x = area.x + (i as u16) * col_width;
         let w = if i as u16 == col_count - 1 {
             area.width - (i as u16) * col_width
