@@ -109,13 +109,17 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             })
             .collect();
 
-        let title = format!(" {} ({}) ", col.name, visible_issues.len());
+        let title = format!("{} ({}) ", col.name.to_uppercase(), visible_issues.len());
+        let borders = if (i as u16) < col_count - 1 {
+            Borders::RIGHT
+        } else {
+            Borders::NONE
+        };
         let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .borders(borders)
             .border_style(Style::default().fg(t.border))
             .title(title)
-            .title_style(Style::default().fg(t.text).add_modifier(Modifier::BOLD));
+            .title_style(Style::default().fg(t.text_dim).add_modifier(Modifier::BOLD));
         let inner = block.inner(col_area);
         frame.render_widget(block, col_area);
 
@@ -141,7 +145,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
 
             let mut lines: Vec<Line> = summary_lines
                 .iter()
-                .map(|s| Line::from(Span::styled(s.as_str(), Style::default().fg(t.text))))
+                .map(|s| Line::from(Span::styled(s.as_str(), Style::default().fg(t.text).add_modifier(Modifier::BOLD))))
                 .collect();
 
             // Row 2: Epic with background color
