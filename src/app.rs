@@ -122,6 +122,7 @@ pub struct App {
     pub board_hide_subtasks: bool,
     pub board_hide_backlog_col: bool,
     pub settings_board_field: usize,
+    pub mouse_pos: (u16, u16),
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
@@ -227,6 +228,7 @@ impl App {
             board_hide_subtasks: config.ui.board_hide_subtasks.unwrap_or(false),
             board_hide_backlog_col: config.ui.board_hide_backlog_col.unwrap_or(false),
             settings_board_field: 0,
+            mouse_pos: (0, 0),
             theme_selected,
             theme_confirmed: theme_selected,
             header_bg_confirmed: header_bg_soft,
@@ -747,6 +749,11 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
+        if let MouseEventKind::Moved = mouse.kind {
+            self.mouse_pos = (mouse.column, mouse.row);
+            return;
+        }
+
         match mouse.kind {
             MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
                 self.backlog_nav.scroll_down(self.backlog_issues.len());

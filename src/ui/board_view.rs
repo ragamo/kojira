@@ -182,9 +182,9 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             };
 
             let key_len = issue.key.len();
-            let available = content_width.saturating_sub(key_len + 1);
+            let available = content_width.saturating_sub(key_len + 2);
             let assignee_display = truncate_str(assignee_name, available);
-            let padding = content_width.saturating_sub(key_len + assignee_display.len());
+            let padding = content_width.saturating_sub(key_len + assignee_display.len()).max(1);
             let line3 = Line::from(vec![
                 key_span,
                 Span::raw(" ".repeat(padding)),
@@ -194,7 +194,17 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             lines.push(line2);
             lines.push(line3);
 
-            let card = Paragraph::new(lines);
+            let mouse = app.mouse_pos;
+            let hovered = mouse.0 >= card_area.x
+                && mouse.0 < card_area.x + card_area.width
+                && mouse.1 >= card_area.y
+                && mouse.1 < card_area.y + card_area.height;
+
+            let card = if hovered {
+                Paragraph::new(lines).style(Style::default().bg(t.header_bg))
+            } else {
+                Paragraph::new(lines)
+            };
             frame.render_widget(card, card_area);
 
             y_offset += card_height + 1;
