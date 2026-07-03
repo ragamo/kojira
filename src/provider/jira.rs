@@ -54,7 +54,7 @@ impl JiraProvider {
         let jql = format!("project = {} ORDER BY updated DESC", project_key);
         let body = serde_json::json!({
             "jql": jql,
-            "maxResults": 50,
+            "maxResults": 100,
             "fields": ["summary", "status", "issuetype", "priority", "assignee", "parent", "updated"]
         });
         let resp = self

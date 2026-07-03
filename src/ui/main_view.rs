@@ -143,8 +143,8 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(bg_block, area);
 
     let tabs_layout = Layout::horizontal([
-        Constraint::Length(12),
         Constraint::Length(10),
+        Constraint::Length(8),
         Constraint::Min(0),
     ])
     .split(area);
