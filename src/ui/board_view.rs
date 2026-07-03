@@ -77,6 +77,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         return;
     }
 
+    let hide_subtasks = app.board_hide_subtasks;
+
     let col_count = tab.columns.len() as u16;
     let col_width = area.width / col_count.max(1);
 
@@ -89,7 +91,18 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         };
         let col_area = Rect { x, y: area.y, width: w, height: area.height };
 
-        let title = format!(" {} ({}) ", col.name, col.issues.len());
+        let visible_issues: Vec<&_> = col
+            .issues
+            .iter()
+            .filter(|issue| {
+                if hide_subtasks && issue.fields.issue_type.name.eq_ignore_ascii_case("sub-task") {
+                    return false;
+                }
+                true
+            })
+            .collect();
+
+        let title = format!(" {} ({}) ", col.name, visible_issues.len());
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
@@ -101,7 +114,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
 
         let mut y_offset = 0u16;
 
-        for issue in &col.issues {
+        for issue in &visible_issues {
             let content_width = inner.width as usize;
 
             // Row 1+: Summary (wrapped)

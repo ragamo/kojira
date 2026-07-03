@@ -14,6 +14,7 @@ pub struct AppConfig {
 pub struct UiConfig {
     pub theme: Option<String>,
     pub header_bg: Option<String>,
+    pub board_hide_subtasks: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -113,8 +113,11 @@ pub struct App {
     pub settings_theme_areas: Vec<Rect>,
     pub settings_header_soft_area: Option<Rect>,
     pub settings_header_hard_area: Option<Rect>,
+    pub settings_board_on_area: Option<Rect>,
+    pub settings_board_off_area: Option<Rect>,
     pub settings_apply_area: Option<Rect>,
     pub settings_close_area: Option<Rect>,
+    pub board_hide_subtasks: bool,
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
@@ -211,8 +214,11 @@ impl App {
             settings_theme_areas: Vec::new(),
             settings_header_soft_area: None,
             settings_header_hard_area: None,
+            settings_board_on_area: None,
+            settings_board_off_area: None,
             settings_apply_area: None,
             settings_close_area: None,
+            board_hide_subtasks: config.ui.board_hide_subtasks.unwrap_or(false),
             theme_selected,
             theme_confirmed: theme_selected,
             header_bg_confirmed: header_bg_soft,
@@ -429,7 +435,7 @@ impl App {
     }
 
     fn handle_settings_key(&mut self, key: KeyEvent) {
-        const NUM_TABS: usize = 3;
+        const NUM_TABS: usize = 4;
         match key.code {
             KeyCode::Esc => {
                 self.theme = theme::ALL_THEMES[self.theme_confirmed];
@@ -458,6 +464,9 @@ impl App {
             }
             KeyCode::Char(' ') if self.settings_selected == 1 => {
                 self.header_bg_soft = !self.header_bg_soft;
+            }
+            KeyCode::Char(' ') if self.settings_selected == 2 => {
+                self.board_hide_subtasks = !self.board_hide_subtasks;
             }
             KeyCode::Enter => {
                 self.apply_settings();
@@ -714,6 +723,7 @@ impl App {
         self.header_bg_confirmed = self.header_bg_soft;
         self.config.ui.header_bg =
             Some(if self.header_bg_soft { "soft" } else { "hard" }.to_string());
+        self.config.ui.board_hide_subtasks = Some(self.board_hide_subtasks);
         let _ = config::save_config(&self.config);
         self.settings_open = false;
         self.focus = FocusLayer::Main;
@@ -867,6 +877,17 @@ impl App {
             }
             if hit(pos, self.settings_header_hard_area) {
                 self.header_bg_soft = false;
+                return;
+            }
+        }
+
+        if self.settings_selected == 2 {
+            if hit(pos, self.settings_board_on_area) {
+                self.board_hide_subtasks = true;
+                return;
+            }
+            if hit(pos, self.settings_board_off_area) {
+                self.board_hide_subtasks = false;
                 return;
             }
         }

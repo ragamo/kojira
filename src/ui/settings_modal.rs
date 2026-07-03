@@ -4,7 +4,7 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use crate::app::App;
 use crate::theme;
 
-const TABS: &[&str] = &["themes", "config", "about"];
+const TABS: &[&str] = &["themes", "config", "board", "about"];
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let t = app.theme;
@@ -91,6 +91,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     match app.settings_selected {
         0 => render_theme_tab(frame, app, content_area),
         1 => render_config_tab(frame, app, content_area),
+        2 => render_board_tab(frame, app, content_area),
         _ => render_about_tab(frame, app, content_area),
     }
 
@@ -192,6 +193,56 @@ fn render_config_tab(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     app.settings_header_soft_area = Some(Rect { x: soft_x, y: header_y, width: 6, height: 1 });
     app.settings_header_hard_area = Some(Rect { x: hard_x, y: header_y, width: 6, height: 1 });
+
+    let hint_area = Rect {
+        x: area.x + 3,
+        y: area.y + 3,
+        width: area.width.saturating_sub(4),
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("space", Style::default().fg(t.accent)),
+            Span::styled(" toggle  ", Style::default().fg(t.text_dim)),
+            Span::styled("↵", Style::default().fg(t.accent)),
+            Span::styled(" save", Style::default().fg(t.text_dim)),
+        ])),
+        hint_area,
+    );
+}
+
+fn render_board_tab(frame: &mut Frame, app: &mut App, area: Rect) {
+    let t = app.theme;
+
+    let val_style = |active: bool| {
+        if active {
+            Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(t.text_dim)
+        }
+    };
+
+    let label_y = area.y + 1;
+    let label = "Hide sub-tasks: ";
+    let on_x = area.x + 3 + label.len() as u16;
+    let off_x = on_x + 5 + 1;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" ▸ ", Style::default().fg(t.accent)),
+            Span::styled(label, Style::default().fg(t.text)),
+            Span::styled(" on ", val_style(app.board_hide_subtasks)),
+            Span::raw(" "),
+            Span::styled(" off ", val_style(!app.board_hide_subtasks)),
+        ])),
+        Rect {
+            x: area.x,
+            y: label_y,
+            width: area.width.saturating_sub(2),
+            height: 1,
+        },
+    );
+    app.settings_board_on_area = Some(Rect { x: on_x, y: label_y, width: 4, height: 1 });
+    app.settings_board_off_area = Some(Rect { x: off_x, y: label_y, width: 5, height: 1 });
 
     let hint_area = Rect {
         x: area.x + 3,
