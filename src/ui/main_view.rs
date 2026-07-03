@@ -194,15 +194,16 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_content(frame: &mut Frame, app: &mut App, area: Rect) {
-    let t = app.theme;
-    let placeholder = match app.active_tab {
-        Tab::Backlog => "Backlog view",
-        Tab::Board => "Board view",
-    };
-    let content = Paragraph::new(placeholder)
-        .style(Style::default().fg(t.text_dim))
-        .alignment(Alignment::Center);
-    frame.render_widget(content, area);
+    match app.active_tab {
+        Tab::Backlog => crate::ui::backlog_view::render(frame, app, area),
+        Tab::Board => {
+            let t = app.theme;
+            let content = Paragraph::new("Board view")
+                .style(Style::default().fg(t.text_dim))
+                .alignment(Alignment::Center);
+            frame.render_widget(content, area);
+        }
+    }
 }
 
 fn render_footer(frame: &mut Frame, theme: &Theme, area: Rect) {

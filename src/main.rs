@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod event;
 mod provider;
+mod table_nav;
 mod theme;
 mod ui;
 
@@ -27,6 +28,11 @@ async fn main() -> Result<()> {
 
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
     let mut app = App::new(cfg, msg_tx);
+
+    if app.logged_in && !app.projects.is_empty() {
+        app.backlog_loading = true;
+        app.load_backlog();
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();

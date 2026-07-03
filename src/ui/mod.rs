@@ -1,4 +1,5 @@
 pub mod auth_modal;
+pub mod backlog_view;
 pub mod click_regions;
 pub mod find_modal;
 pub mod main_view;

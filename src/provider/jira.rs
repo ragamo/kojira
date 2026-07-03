@@ -1,7 +1,7 @@
 use reqwest::Client;
 use thiserror::Error;
 
-use super::types::{JiraProject, JiraProjectSearchResponse, JiraUser};
+use super::types::{JiraIssue, JiraProject, JiraProjectSearchResponse, JiraSearchResponse, JiraUser};
 
 #[derive(Debug, Error)]
 pub enum JiraError {
@@ -47,6 +47,34 @@ impl JiraProvider {
 
         let user: JiraUser = resp.json().await?;
         Ok(user)
+    }
+
+    pub async fn get_backlog(&self, project_key: &str) -> Result<Vec<JiraIssue>, JiraError> {
+        let url = format!("{}/rest/api/3/search/jql", self.base_url);
+        let jql = format!("project = {} ORDER BY updated DESC", project_key);
+        let body = serde_json::json!({
+            "jql": jql,
+            "maxResults": 50,
+            "fields": ["summary", "status", "issuetype", "priority", "assignee", "parent", "updated"]
+        });
+        let resp = self
+            .client
+            .post(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(JiraError::Auth(format!("HTTP {}: {}", status, &text[..text.len().min(200)])));
+        }
+
+        let text = resp.text().await?;
+        let data: JiraSearchResponse = serde_json::from_str(&text)
+            .map_err(|e| JiraError::Auth(format!("Parse error: {} — body: {}", e, &text[..text.len().min(300)])))?;
+        Ok(data.issues)
     }
 
     pub async fn search_projects(&self, query: &str) -> Result<Vec<JiraProject>, JiraError> {

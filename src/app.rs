@@ -7,6 +7,8 @@ use crate::config;
 use crate::config::types::{AppConfig, FavoriteProject};
 use crate::event::{AppEvent, AppMessage};
 use crate::provider::jira::JiraProvider;
+use crate::provider::types::JiraIssue;
+use crate::table_nav::TableNav;
 use crate::theme::{self, Theme};
 use crate::ui::click_regions::ClickRegions;
 
@@ -62,6 +64,12 @@ pub struct App {
     pub token_input: String,
     pub is_validating: bool,
     pub auth_error: Option<String>,
+
+    // Backlog
+    pub backlog_issues: Vec<JiraIssue>,
+    pub backlog_loading: bool,
+    pub backlog_error: Option<String>,
+    pub backlog_nav: TableNav,
 
     // Find modal
     pub find_modal_open: bool,
@@ -138,6 +146,11 @@ impl App {
             is_validating: false,
             auth_error: None,
 
+            backlog_issues: Vec::new(),
+            backlog_loading: false,
+            backlog_error: None,
+            backlog_nav: TableNav::default(),
+
             find_modal_open: false,
             find_input: String::new(),
             find_results: Vec::new(),
@@ -187,10 +200,23 @@ impl App {
                 self.auth_open = false;
                 self.auth_error = None;
                 self.focus = FocusLayer::Main;
+                if !self.projects.is_empty() {
+                    self.backlog_loading = true;
+                    self.load_backlog();
+                }
             }
             AppMessage::TokenValidated(Err(e)) => {
                 self.is_validating = false;
                 self.auth_error = Some(e.to_string());
+            }
+            AppMessage::BacklogLoaded(Ok(issues)) => {
+                self.backlog_issues = issues;
+                self.backlog_loading = false;
+                self.backlog_nav.clamp(self.backlog_issues.len());
+            }
+            AppMessage::BacklogLoaded(Err(e)) => {
+                self.backlog_loading = false;
+                self.backlog_error = Some(e.to_string());
             }
             AppMessage::SearchResults(Ok(projects)) => {
                 let favorites: Vec<&str> = self.projects.iter().map(|f| f.key.as_str()).collect();
@@ -238,7 +264,18 @@ impl App {
                 self.focus = FocusLayer::ProjectDropdown;
             }
             KeyCode::Char('f') => self.open_find(),
+            KeyCode::Char('r') => {
+                self.backlog_loading = true;
+                self.backlog_error = None;
+                self.load_backlog();
+            }
             KeyCode::Char(',') => self.open_settings(),
+            KeyCode::Down | KeyCode::Char('j') if self.active_tab == Tab::Backlog => {
+                self.backlog_nav.move_down(self.backlog_issues.len());
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.active_tab == Tab::Backlog => {
+                self.backlog_nav.move_up(self.backlog_issues.len());
+            }
             _ => {}
         }
     }
@@ -258,6 +295,9 @@ impl App {
             KeyCode::Enter => {
                 self.project_selector_open = false;
                 self.focus = FocusLayer::Main;
+                self.backlog_loading = true;
+                self.backlog_nav.reset();
+                self.load_backlog();
             }
             KeyCode::Esc => {
                 self.project_selector_open = false;
@@ -346,6 +386,9 @@ impl App {
                         .unwrap_or(0);
                     self.find_modal_open = false;
                     self.focus = FocusLayer::Main;
+                    self.backlog_loading = true;
+                    self.backlog_nav.reset();
+                    self.load_backlog();
                 }
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -399,6 +442,30 @@ impl App {
             let provider = JiraProvider::new(client, base_url, email, token);
             let result = provider.search_projects(&query).await;
             let _ = tx.send(AppMessage::SearchResults(result));
+        });
+    }
+
+    pub fn load_backlog(&self) {
+        let project = match self.projects.get(self.selected_project) {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let project_key = project.key;
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let result = provider.get_backlog(&project_key).await;
+            let _ = tx.send(AppMessage::BacklogLoaded(result));
         });
     }
 
@@ -541,6 +608,18 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
+                self.backlog_nav.scroll_down(self.backlog_issues.len());
+                return;
+            }
+            MouseEventKind::ScrollUp if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
+                self.backlog_nav.scroll_up();
+                return;
+            }
+            _ => {}
+        }
+
         if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
             let pos = (mouse.column, mouse.row);
 
