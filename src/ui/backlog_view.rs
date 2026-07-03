@@ -6,20 +6,25 @@ use crate::provider::types::JiraIssue;
 use crate::theme::Theme;
 
 const EPIC_COLORS: &[(u8, u8, u8)] = &[
-    (136, 71, 209),   // purple
-    (0, 135, 90),     // teal
-    (192, 108, 22),   // orange
-    (30, 102, 245),   // blue
-    (195, 55, 100),   // pink
-    (56, 132, 0),     // green
-    (165, 97, 24),    // brown
-    (23, 146, 153),   // cyan
-    (120, 71, 189),   // violet
-    (180, 52, 52),    // red
+    (126, 156, 216),  // blue
+    (90, 195, 170),   // teal
+    (149, 127, 184),  // violet
+    (152, 187, 108),  // green
+    (100, 175, 230),  // sky
+    (170, 120, 190),  // mauve
+    (230, 195, 132),  // yellow
+    (127, 180, 202),  // cyan
+    (80, 190, 210),   // aqua
+    (170, 210, 90),   // lime
+    (200, 130, 170),  // pink
+    (220, 175, 80),   // gold
+    (255, 160, 102),  // orange
+    (240, 130, 100),  // coral
+    (228, 104, 118),  // red
 ];
 
 fn epic_color_for(name: &str) -> Color {
-    let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(37).wrapping_add(b as u32));
     let idx = (hash as usize) % EPIC_COLORS.len();
     let (r, g, b) = EPIC_COLORS[idx];
     Color::Rgb(r, g, b)
@@ -109,7 +114,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                     .unwrap_or(&parent.key);
                 let bg = epic_color_for(epic_name);
                 Cell::from(format!(" {} ", epic_name))
-                    .style(Style::default().fg(Color::White).bg(bg))
+                    .style(Style::default().fg(Color::Rgb(30, 30, 30)).bg(bg))
             } else {
                 Cell::from("").style(Style::default().fg(t.text_dim))
             };

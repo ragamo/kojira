@@ -19,20 +19,25 @@ const AUTHOR_COLORS: &[(u8, u8, u8)] = &[
 ];
 
 const EPIC_COLORS: &[(u8, u8, u8)] = &[
-    (136, 71, 209),
-    (0, 135, 90),
-    (192, 108, 22),
-    (30, 102, 245),
-    (195, 55, 100),
-    (56, 132, 0),
-    (165, 97, 24),
-    (23, 146, 153),
-    (120, 71, 189),
-    (180, 52, 52),
+    (126, 156, 216),  // blue
+    (90, 195, 170),   // teal
+    (149, 127, 184),  // violet
+    (152, 187, 108),  // green
+    (100, 175, 230),  // sky
+    (170, 120, 190),  // mauve
+    (230, 195, 132),  // yellow
+    (127, 180, 202),  // cyan
+    (80, 190, 210),   // aqua
+    (170, 210, 90),   // lime
+    (200, 130, 170),  // pink
+    (220, 175, 80),   // gold
+    (255, 160, 102),  // orange
+    (240, 130, 100),  // coral
+    (228, 104, 118),  // red
 ];
 
 fn color_for(name: &str, palette: &[(u8, u8, u8)]) -> Color {
-    let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(37).wrapping_add(b as u32));
     let idx = (hash as usize) % palette.len();
     let (r, g, b) = palette[idx];
     Color::Rgb(r, g, b)
@@ -157,7 +162,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                     .unwrap_or(&parent.key);
                 let bg = color_for(epic_name, EPIC_COLORS);
                 let display = format!(" {} ", truncate_str(epic_name, content_width.saturating_sub(2)));
-                Line::from(Span::styled(display, Style::default().fg(Color::White).bg(bg)))
+                Line::from(Span::styled(display, Style::default().fg(Color::Rgb(30, 30, 30)).bg(bg)))
             } else {
                 Line::from(Span::styled("", Style::default().fg(t.text_dim)))
             };
