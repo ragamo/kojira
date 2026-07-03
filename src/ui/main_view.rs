@@ -85,23 +85,48 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let right_area = header_layout[1];
 
-    let right_text = vec![
-        Span::styled("kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
-        Span::styled(" │ ", Style::default().fg(t.text_dim)),
-        Span::styled("settings", Style::default().fg(t.text_dim)),
-        Span::raw(" "),
-    ];
+    let right_text = if app.logged_in {
+        let name = app
+            .user_display_name
+            .as_deref()
+            .or(app.user_email.as_deref())
+            .unwrap_or("user");
+        vec![
+            Span::styled("kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(" │ ", Style::default().fg(t.text_dim)),
+            Span::styled(name, Style::default().fg(t.success)),
+            Span::styled("  logout", Style::default().fg(t.text_dim)),
+            Span::raw(" "),
+        ]
+    } else {
+        vec![
+            Span::styled("kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(" │ ", Style::default().fg(t.text_dim)),
+            Span::styled("login", Style::default().fg(t.text_dim)),
+            Span::raw(" "),
+        ]
+    };
 
     let right_widget = Paragraph::new(Line::from(right_text)).alignment(Alignment::Right);
     frame.render_widget(right_widget, right_area);
 
-    let settings_width = 9u16;
-    app.click_regions.header.settings_link = Some(Rect {
-        x: right_area.x + right_area.width.saturating_sub(settings_width),
-        y: right_area.y,
-        width: settings_width,
-        height: 1,
-    });
+    if app.logged_in {
+        let logout_width = 8u16;
+        app.click_regions.header.logout_link = Some(Rect {
+            x: right_area.x + right_area.width.saturating_sub(logout_width + 1),
+            y: right_area.y,
+            width: logout_width,
+            height: 1,
+        });
+    } else {
+        let login_width = 6u16;
+        app.click_regions.header.login_link = Some(Rect {
+            x: right_area.x + right_area.width.saturating_sub(login_width + 1),
+            y: right_area.y,
+            width: login_width,
+            height: 1,
+        });
+    }
 }
 
 fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -132,11 +157,33 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     let backlog_tab = Paragraph::new(Span::styled(" backlog ", backlog_style));
     let board_tab = Paragraph::new(Span::styled(" board ", board_style));
 
+    let settings_link = Paragraph::new(Span::styled(
+        "settings ",
+        Style::default().fg(t.text_dim),
+    ))
+    .alignment(Alignment::Right);
+
+    let settings_row = Rect {
+        x: tabs_layout[2].x,
+        y: tabs_layout[2].y.saturating_sub(1),
+        width: tabs_layout[2].width,
+        height: 1,
+    };
+
     frame.render_widget(backlog_tab, tabs_layout[0]);
     frame.render_widget(board_tab, tabs_layout[1]);
+    frame.render_widget(settings_link, settings_row);
 
     app.click_regions.header.tab_backlog = Some(tabs_layout[0]);
     app.click_regions.header.tab_board = Some(tabs_layout[1]);
+
+    let settings_width = 9u16;
+    app.click_regions.header.settings_link = Some(Rect {
+        x: settings_row.x + settings_row.width.saturating_sub(settings_width),
+        y: settings_row.y,
+        width: settings_width,
+        height: 1,
+    });
 }
 
 fn render_content(frame: &mut Frame, app: &mut App, area: Rect) {

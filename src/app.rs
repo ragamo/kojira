@@ -1,10 +1,12 @@
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::prelude::Rect;
+use tokio::sync::mpsc;
 
 use crate::config;
 use crate::config::types::{AppConfig, FavoriteProject};
-use crate::event::AppEvent;
+use crate::event::{AppEvent, AppMessage};
+use crate::provider::jira::JiraProvider;
 use crate::theme::{self, Theme};
 use crate::ui::click_regions::ClickRegions;
 
@@ -18,7 +20,15 @@ pub enum Tab {
 pub enum FocusLayer {
     Main,
     Settings,
+    Auth,
     ProjectDropdown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthField {
+    Subdomain,
+    Email,
+    Token,
 }
 
 pub struct App {
@@ -32,6 +42,22 @@ pub struct App {
     pub click_regions: ClickRegions,
     pub config: AppConfig,
     pub focus: FocusLayer,
+
+    // Auth
+    pub logged_in: bool,
+    pub user_display_name: Option<String>,
+    pub user_email: Option<String>,
+    pub auth_open: bool,
+    pub auth_field: AuthField,
+    pub subdomain_input: String,
+    pub email_input: String,
+    pub token_input: String,
+    pub is_validating: bool,
+    pub auth_error: Option<String>,
+
+    // Async messaging
+    pub message_tx: mpsc::UnboundedSender<AppMessage>,
+    pub http_client: reqwest::Client,
 
     // Settings modal
     pub settings_open: bool,
@@ -48,7 +74,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: AppConfig) -> Self {
+    pub fn new(config: AppConfig, message_tx: mpsc::UnboundedSender<AppMessage>) -> Self {
         let theme = config
             .ui
             .theme
@@ -64,6 +90,16 @@ impl App {
             .unwrap_or(0);
 
         let projects = config.jira.favorites.clone();
+        let logged_in = config.auth.token.is_some();
+        let user_email = config.auth.email.clone();
+        let subdomain = config
+            .jira
+            .base_url
+            .as_deref()
+            .and_then(|u| u.strip_prefix("https://"))
+            .and_then(|u| u.strip_suffix(".atlassian.net"))
+            .unwrap_or("")
+            .to_string();
 
         Self {
             running: true,
@@ -75,6 +111,20 @@ impl App {
             project_selector_open: false,
             click_regions: ClickRegions::default(),
             focus: FocusLayer::Main,
+
+            logged_in,
+            user_display_name: None,
+            user_email: user_email.clone(),
+            auth_open: false,
+            auth_field: AuthField::Subdomain,
+            subdomain_input: subdomain,
+            email_input: user_email.unwrap_or_default(),
+            token_input: String::new(),
+            is_validating: false,
+            auth_error: None,
+
+            message_tx,
+            http_client: reqwest::Client::new(),
 
             settings_open: false,
             settings_selected: 0,
@@ -96,11 +146,33 @@ impl App {
         match event {
             AppEvent::Key(key) => self.handle_key(key),
             AppEvent::Mouse(mouse) => self.handle_mouse(mouse),
+            AppEvent::Message(msg) => self.handle_message(msg),
             AppEvent::Tick => {}
             AppEvent::Resize(_, _) => {}
-            AppEvent::Message(_) => {}
         }
         Ok(())
+    }
+
+    fn handle_message(&mut self, msg: AppMessage) {
+        match msg {
+            AppMessage::TokenValidated(Ok(user)) => {
+                self.is_validating = false;
+                self.logged_in = true;
+                self.user_display_name = Some(user.display_name);
+                self.user_email = user.email.clone();
+                self.config.auth.token = Some(self.token_input.clone());
+                self.config.auth.email = Some(self.email_input.clone());
+                let _ = config::save_config(&self.config);
+                self.auth_open = false;
+                self.auth_error = None;
+                self.focus = FocusLayer::Main;
+            }
+            AppMessage::TokenValidated(Err(e)) => {
+                self.is_validating = false;
+                self.auth_error = Some(e.to_string());
+            }
+            AppMessage::Tick => {}
+        }
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
@@ -110,6 +182,7 @@ impl App {
         }
 
         match self.focus {
+            FocusLayer::Auth => self.handle_auth_key(key),
             FocusLayer::Settings => self.handle_settings_key(key),
             FocusLayer::ProjectDropdown => self.handle_dropdown_key(key),
             FocusLayer::Main => self.handle_main_key(key),
@@ -198,6 +271,92 @@ impl App {
         self.focus = FocusLayer::Settings;
     }
 
+    fn open_auth(&mut self) {
+        self.auth_open = true;
+        self.token_input.clear();
+        self.auth_error = None;
+        self.auth_field = AuthField::Subdomain;
+        self.focus = FocusLayer::Auth;
+    }
+
+    fn logout(&mut self) {
+        self.logged_in = false;
+        self.user_display_name = None;
+        self.user_email = None;
+        self.config.auth.token = None;
+        self.config.auth.email = None;
+        let _ = config::save_config(&self.config);
+    }
+
+    fn handle_auth_key(&mut self, key: KeyEvent) {
+        if self.is_validating {
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                self.auth_open = false;
+                self.auth_error = None;
+                self.focus = FocusLayer::Main;
+            }
+            KeyCode::Tab => {
+                self.auth_field = match self.auth_field {
+                    AuthField::Subdomain => AuthField::Email,
+                    AuthField::Email => AuthField::Token,
+                    AuthField::Token => AuthField::Subdomain,
+                };
+            }
+            KeyCode::BackTab => {
+                self.auth_field = match self.auth_field {
+                    AuthField::Subdomain => AuthField::Token,
+                    AuthField::Email => AuthField::Subdomain,
+                    AuthField::Token => AuthField::Email,
+                };
+            }
+            KeyCode::Enter => self.submit_token(),
+            KeyCode::Backspace => match self.auth_field {
+                AuthField::Subdomain => { self.subdomain_input.pop(); }
+                AuthField::Email => { self.email_input.pop(); }
+                AuthField::Token => { self.token_input.pop(); }
+            },
+            KeyCode::Char(c) => match self.auth_field {
+                AuthField::Subdomain => self.subdomain_input.push(c),
+                AuthField::Email => self.email_input.push(c),
+                AuthField::Token => self.token_input.push(c),
+            },
+            _ => {}
+        }
+    }
+
+    fn submit_token(&mut self) {
+        if self.subdomain_input.is_empty() {
+            self.auth_error = Some("Subdomain is required".into());
+            return;
+        }
+        if self.email_input.is_empty() || self.token_input.is_empty() {
+            self.auth_error = Some("Email and token are required".into());
+            return;
+        }
+
+        self.is_validating = true;
+        self.auth_error = None;
+
+        let base_url = format!("https://{}.atlassian.net", self.subdomain_input);
+
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.email_input.clone();
+        let token = self.token_input.clone();
+        let url = base_url.clone();
+
+        self.config.jira.base_url = Some(base_url);
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, url, email, token);
+            let result = provider.get_current_user().await;
+            let _ = tx.send(AppMessage::TokenValidated(result));
+        });
+    }
+
     fn apply_settings(&mut self) {
         self.theme_confirmed = self.theme_selected;
         self.config.ui.theme = Some(self.theme.name.to_string());
@@ -231,12 +390,15 @@ impl App {
                 };
             } else if hit(pos, self.click_regions.header.settings_link) {
                 self.open_settings();
+            } else if hit(pos, self.click_regions.header.login_link) {
+                self.open_auth();
+            } else if hit(pos, self.click_regions.header.logout_link) {
+                self.logout();
             }
         }
     }
 
     fn handle_settings_mouse(&mut self, pos: (u16, u16)) {
-        // Tab clicks
         for (i, area) in self.settings_tab_areas.iter().enumerate() {
             if hit(pos, Some(*area)) {
                 self.settings_selected = i;
@@ -244,7 +406,6 @@ impl App {
             }
         }
 
-        // Theme list clicks
         if self.settings_selected == 0 {
             for (i, area) in self.settings_theme_areas.iter().enumerate() {
                 if hit(pos, Some(*area)) {
@@ -255,7 +416,6 @@ impl App {
             }
         }
 
-        // Config tab clicks
         if self.settings_selected == 1 {
             if hit(pos, self.settings_header_soft_area) {
                 self.header_bg_soft = true;
@@ -267,7 +427,6 @@ impl App {
             }
         }
 
-        // Apply / Close buttons
         if hit(pos, self.settings_apply_area) {
             self.apply_settings();
             return;

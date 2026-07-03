@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod event;
+mod provider;
 mod theme;
 mod ui;
 
@@ -16,14 +17,16 @@ use ratatui::prelude::*;
 use tokio::sync::mpsc;
 
 use app::App;
-use event::event_loop;
+use event::{AppEvent, event_loop};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let cfg = config::load_config()?;
-    let mut app = App::new(cfg);
+
+    let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
+    let mut app = App::new(cfg, msg_tx);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -31,10 +34,10 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
     tokio::spawn(async move {
-        let _ = event_loop(tx).await;
+        let _ = event_loop(event_tx).await;
     });
 
     while app.running {
@@ -42,8 +45,13 @@ async fn main() -> Result<()> {
             ui::render(frame, &mut app);
         })?;
 
-        if let Some(event) = rx.recv().await {
-            app.handle_event(event)?;
+        tokio::select! {
+            Some(event) = event_rx.recv() => {
+                app.handle_event(event)?;
+            }
+            Some(msg) = msg_rx.recv() => {
+                app.handle_event(AppEvent::Message(msg))?;
+            }
         }
     }
 

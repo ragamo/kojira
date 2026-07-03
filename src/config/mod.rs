@@ -7,8 +7,9 @@ use color_eyre::Result;
 use types::AppConfig;
 
 pub fn config_dir() -> PathBuf {
-    dirs::config_dir()
+    dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
+        .join(".config")
         .join("kojira")
 }
 
