@@ -23,6 +23,7 @@ pub struct BoardTab {
     pub board_id: u64,
     pub board_name: String,
     pub columns: Vec<BoardColumn>,
+    pub col_scroll: Vec<usize>,
     pub loading: bool,
     pub error: Option<String>,
 }
@@ -123,6 +124,7 @@ pub struct App {
     pub board_hide_backlog_col: bool,
     pub settings_board_field: usize,
     pub mouse_pos: (u16, u16),
+    pub board_content_area: Option<Rect>,
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
@@ -158,6 +160,7 @@ impl App {
                 board_id: b.board_id,
                 board_name: b.board_name.clone(),
                 columns: Vec::new(),
+                col_scroll: Vec::new(),
                 loading: true,
                 error: None,
             })
@@ -229,6 +232,7 @@ impl App {
             board_hide_backlog_col: config.ui.board_hide_backlog_col.unwrap_or(false),
             settings_board_field: 0,
             mouse_pos: (0, 0),
+            board_content_area: None,
             theme_selected,
             theme_confirmed: theme_selected,
             header_bg_confirmed: header_bg_soft,
@@ -327,6 +331,7 @@ impl App {
                     }
 
 
+                    tab.col_scroll = vec![0; tab.columns.len()];
                     tab.loading = false;
                     tab.error = None;
                 }
@@ -763,6 +768,18 @@ impl App {
                 self.backlog_nav.scroll_up();
                 return;
             }
+            MouseEventKind::ScrollDown if self.focus == FocusLayer::Main => {
+                if let Tab::Board(id) = self.active_tab {
+                    self.scroll_board_column(id, mouse.column, 3);
+                }
+                return;
+            }
+            MouseEventKind::ScrollUp if self.focus == FocusLayer::Main => {
+                if let Tab::Board(id) = self.active_tab {
+                    self.scroll_board_column(id, mouse.column, -3);
+                }
+                return;
+            }
             _ => {}
         }
 
@@ -937,6 +954,56 @@ impl App {
         }
     }
 
+    fn scroll_board_column(&mut self, board_id: u64, mouse_x: u16, delta: i32) {
+        let tab = match self.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
+            Some(t) => t,
+            None => return,
+        };
+        if tab.columns.is_empty() || tab.col_scroll.is_empty() {
+            return;
+        }
+
+        let visible_count = if self.board_hide_backlog_col {
+            tab.columns.iter().filter(|c| !c.name.eq_ignore_ascii_case("backlog")).count()
+        } else {
+            tab.columns.len()
+        };
+        if visible_count == 0 {
+            return;
+        }
+
+        let (area_x, area_width) = self
+            .board_content_area
+            .map(|a| (a.x, a.width))
+            .unwrap_or((0, 80));
+        let relative_x = mouse_x.saturating_sub(area_x) as usize;
+        let col_width = (area_width as usize) / visible_count.max(1);
+        let col_idx = if col_width > 0 { relative_x / col_width } else { 0 };
+        let col_idx = col_idx.min(visible_count - 1);
+
+        // Map visible index back to actual index
+        let actual_idx = if self.board_hide_backlog_col {
+            tab.columns
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| !c.name.eq_ignore_ascii_case("backlog"))
+                .nth(col_idx)
+                .map(|(i, _)| i)
+        } else {
+            Some(col_idx)
+        };
+
+        if let Some(idx) = actual_idx {
+            if idx < tab.col_scroll.len() {
+                if delta > 0 {
+                    tab.col_scroll[idx] = tab.col_scroll[idx].saturating_add(delta as usize);
+                } else {
+                    tab.col_scroll[idx] = tab.col_scroll[idx].saturating_sub((-delta) as usize);
+                }
+            }
+        }
+    }
+
     fn next_tab(&mut self) {
         let tabs = self.all_tab_ids();
         let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
@@ -1031,6 +1098,7 @@ impl App {
             board_id: board.id,
             board_name: board.name.clone(),
             columns: Vec::new(),
+            col_scroll: Vec::new(),
             loading: true,
             error: None,
         };

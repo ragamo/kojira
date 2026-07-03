@@ -82,6 +82,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         return;
     }
 
+    app.board_content_area = Some(area);
+
     let hide_subtasks = app.board_hide_subtasks;
     let hide_backlog = app.board_hide_backlog_col;
 
@@ -94,6 +96,16 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
     let col_count = visible_columns.len() as u16;
     let col_width = area.width / col_count.max(1);
 
+    let visible_col_indices: Vec<usize> = tab
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !(hide_backlog && c.name.eq_ignore_ascii_case("backlog")))
+        .map(|(i, _)| i)
+        .collect();
+
+    let mut clamped_scrolls: Vec<(usize, usize)> = Vec::new();
+
     for (i, col) in visible_columns.iter().enumerate() {
         let x = area.x + (i as u16) * col_width;
         let w = if i as u16 == col_count - 1 {
@@ -102,6 +114,12 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             col_width
         };
         let col_area = Rect { x, y: area.y, width: w, height: area.height };
+
+        let scroll_offset = visible_col_indices
+            .get(i)
+            .and_then(|&idx| tab.col_scroll.get(idx))
+            .copied()
+            .unwrap_or(0);
 
         let visible_issues: Vec<&_> = col
             .issues
@@ -128,9 +146,39 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         let inner = block.inner(col_area);
         frame.render_widget(block, col_area);
 
-        let mut y_offset = 0u16;
-
+        // Clamp scroll: find the max offset where the last card still fills the bottom
+        let col_height = inner.height;
+        let mut cumulative_heights: Vec<u16> = Vec::with_capacity(visible_issues.len());
         for issue in &visible_issues {
+            let summary_lines = wrap_str(&issue.fields.summary, inner.width as usize);
+            let card_h = (summary_lines.len() as u16) + 2 + 1; // card + spacing
+            cumulative_heights.push(card_h);
+        }
+        let total_height: u16 = cumulative_heights.iter().sum();
+        let max_scroll = if total_height <= col_height {
+            0
+        } else {
+            let mut sum_from_end: u16 = 0;
+            let mut max_s = visible_issues.len();
+            for (j, h) in cumulative_heights.iter().enumerate().rev() {
+                sum_from_end += h;
+                if sum_from_end >= col_height {
+                    max_s = j + 1;
+                    break;
+                }
+            }
+            max_s
+        };
+        let scroll_offset = scroll_offset.min(max_scroll);
+
+        if let Some(&actual_idx) = visible_col_indices.get(i) {
+            clamped_scrolls.push((actual_idx, scroll_offset));
+        }
+
+        let mut y_offset = 0u16;
+        let issues_to_render: Vec<&_> = visible_issues.iter().skip(scroll_offset).copied().collect();
+
+        for issue in &issues_to_render {
             let content_width = inner.width as usize;
 
             // Row 1+: Summary (wrapped)
@@ -208,6 +256,15 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             frame.render_widget(card, card_area);
 
             y_offset += card_height + 1;
+        }
+    }
+
+    // Apply clamped scrolls
+    if let Some(tab_mut) = app.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
+        for (idx, val) in clamped_scrolls {
+            if let Some(s) = tab_mut.col_scroll.get_mut(idx) {
+                *s = val;
+            }
         }
     }
 }
