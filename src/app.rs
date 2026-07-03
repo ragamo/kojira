@@ -667,10 +667,12 @@ impl App {
                 self.selected_project = i;
                 self.project_selector_open = false;
                 self.focus = FocusLayer::Main;
+                self.backlog_loading = true;
+                self.backlog_nav.reset();
+                self.load_backlog();
                 return;
             }
         }
-        // Click outside dropdown closes it
         if !hit(pos, self.click_regions.project_dropdown.bounds) {
             self.project_selector_open = false;
             self.focus = FocusLayer::Main;
@@ -703,6 +705,9 @@ impl App {
                         .unwrap_or(0);
                     self.find_modal_open = false;
                     self.focus = FocusLayer::Main;
+                    self.backlog_loading = true;
+                    self.backlog_nav.reset();
+                    self.load_backlog();
                 }
                 return;
             }
