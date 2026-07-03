@@ -247,7 +247,7 @@ impl App {
             AppEvent::Mouse(mouse) => self.handle_mouse(mouse),
             AppEvent::Message(msg) => self.handle_message(msg),
             AppEvent::Tick => {}
-            AppEvent::Resize(_, _) => {}
+            AppEvent::Resize => {}
         }
         Ok(())
     }
@@ -358,7 +358,6 @@ impl App {
             AppMessage::SearchResults(Err(_)) => {
                 self.find_loading = false;
             }
-            AppMessage::Tick => {}
         }
     }
 

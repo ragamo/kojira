@@ -11,6 +11,7 @@ pub struct Theme {
     pub error: Color,
     pub warning: Color,
     pub info: Color,
+    #[allow(dead_code)]
     pub highlight: Color,
     pub header_bg: Color,
 }

@@ -6,6 +6,7 @@ pub struct JiraUser {
     pub display_name: String,
     #[serde(rename = "emailAddress")]
     pub email: Option<String>,
+    #[allow(dead_code)]
     #[serde(rename = "accountId")]
     pub account_id: String,
 }
@@ -40,6 +41,7 @@ pub struct JiraIssueFields {
     pub status: JiraStatus,
     #[serde(rename = "issuetype")]
     pub issue_type: JiraIssueType,
+    #[allow(dead_code)]
     pub priority: Option<JiraPriority>,
     pub assignee: Option<JiraUser>,
     pub parent: Option<JiraParentField>,
@@ -67,6 +69,7 @@ pub struct JiraIssueType {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct JiraPriority {
+    #[allow(dead_code)]
     pub name: String,
 }
 

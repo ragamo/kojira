@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 pub enum AppEvent {
     Key(KeyEvent),
     Mouse(MouseEvent),
-    Resize(u16, u16),
+    Resize,
     Tick,
     Message(AppMessage),
 }
@@ -17,7 +17,6 @@ use crate::provider::jira::JiraError;
 use crate::provider::types::{JiraBoard, JiraBoardConfig, JiraIssue, JiraProject, JiraUser};
 
 pub enum AppMessage {
-    Tick,
     TokenValidated(Result<JiraUser, JiraError>),
     SearchResults(Result<Vec<JiraProject>, JiraError>),
     BacklogLoaded(Result<Vec<JiraIssue>, JiraError>),
@@ -49,8 +48,8 @@ pub async fn event_loop(tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {
                             break;
                         }
                     }
-                    Some(Ok(Event::Resize(w, h))) => {
-                        if tx.send(AppEvent::Resize(w, h)).is_err() {
+                    Some(Ok(Event::Resize(_, _))) => {
+                        if tx.send(AppEvent::Resize).is_err() {
                             break;
                         }
                     }
