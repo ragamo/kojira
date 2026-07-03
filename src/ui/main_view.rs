@@ -38,13 +38,20 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     ])
     .split(area);
 
-    let project_name = app
+    let project_label = app
         .projects
         .get(app.selected_project)
-        .map(|p| p.key.as_str())
-        .unwrap_or("No project");
+        .map(|p| format!("{} - {}", p.key, p.name))
+        .unwrap_or_else(|| "No project".into());
 
-    let selector_text = format!(" ⏷ {} ", project_name);
+    let max_label_len = 34usize;
+    let display_label = if project_label.len() > max_label_len {
+        format!("{}…", &project_label[..max_label_len - 1])
+    } else {
+        project_label
+    };
+
+    let selector_text = format!(" ⏷ {} ", display_label);
     let selector_width = 40u16.min(header_layout[0].width.saturating_sub(7));
 
     let selector = Paragraph::new(Span::styled(
@@ -217,49 +224,74 @@ fn render_footer(frame: &mut Frame, theme: &Theme, area: Rect) {
     frame.render_widget(footer, area);
 }
 
-fn render_project_dropdown(frame: &mut Frame, app: &mut App, _header_area: Rect) {
+fn render_project_dropdown(frame: &mut Frame, app: &mut App, header_area: Rect) {
     let t = app.theme;
+
     if app.projects.is_empty() {
         return;
     }
 
-    let selector_area = match app.click_regions.header.project_selector {
-        Some(area) => area,
-        None => return,
-    };
-
+    let max_item_len = app
+        .projects
+        .iter()
+        .map(|p| p.key.len() as u16 + p.name.len() as u16 + 16)
+        .max()
+        .unwrap_or(30);
+    let dropdown_width = (max_item_len + 2).max(50).min(header_area.width);
     let dropdown_height = (app.projects.len() as u16 + 2).min(10);
+
     let dropdown_area = Rect {
-        x: selector_area.x,
-        y: selector_area.y + selector_area.height,
-        width: selector_area.width,
+        x: header_area.x,
+        y: header_area.y + header_area.height,
+        width: dropdown_width,
         height: dropdown_height,
     };
 
     frame.render_widget(ratatui::widgets::Clear, dropdown_area);
 
-    let items: Vec<Line> = app
+    let items: Vec<ratatui::widgets::ListItem> = app
         .projects
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let style = if i == app.selected_project {
+            let is_selected = i == app.selected_project;
+            let style = if is_selected {
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(t.text)
             };
-            Line::styled(format!(" {} ", p.key), style)
+            let prefix = if is_selected { " ▸ ★ " } else { "   ★ " };
+            let suffix = if is_selected { "  [s] unfav" } else { "" };
+            let line = Line::from(vec![
+                Span::styled(prefix, Style::default().fg(t.warning)),
+                Span::styled(format!("{} - {}", p.key, p.name), style),
+                Span::styled(suffix, Style::default().fg(t.text_dim)),
+            ]);
+            ratatui::widgets::ListItem::new(line)
         })
         .collect();
 
-    let dropdown = Paragraph::new(items).block(
+    let list = ratatui::widgets::List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(t.accent))
+            .title(" Favorites ")
+            .title_style(Style::default().fg(t.accent))
             .style(Style::default().bg(t.bg)),
     );
-    frame.render_widget(dropdown, dropdown_area);
+
+    frame.render_widget(list, dropdown_area);
+
+    app.click_regions.project_dropdown.bounds = Some(dropdown_area);
+    app.click_regions.project_dropdown.items = (0..app.projects.len())
+        .map(|i| Rect {
+            x: dropdown_area.x + 1,
+            y: dropdown_area.y + 1 + i as u16,
+            width: dropdown_area.width.saturating_sub(2),
+            height: 1,
+        })
+        .collect();
 }
 
 use crate::app::Tab;

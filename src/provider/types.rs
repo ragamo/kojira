@@ -9,3 +9,14 @@ pub struct JiraUser {
     #[serde(rename = "accountId")]
     pub account_id: String,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraProject {
+    pub key: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraProjectSearchResponse {
+    pub values: Vec<JiraProject>,
+}

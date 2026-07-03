@@ -14,11 +14,12 @@ pub enum AppEvent {
 }
 
 use crate::provider::jira::JiraError;
-use crate::provider::types::JiraUser;
+use crate::provider::types::{JiraProject, JiraUser};
 
 pub enum AppMessage {
     Tick,
     TokenValidated(Result<JiraUser, JiraError>),
+    SearchResults(Result<Vec<JiraProject>, JiraError>),
 }
 
 pub async fn event_loop(tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {

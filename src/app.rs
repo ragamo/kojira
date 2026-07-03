@@ -21,6 +21,7 @@ pub enum FocusLayer {
     Main,
     Settings,
     Auth,
+    Find,
     ProjectDropdown,
 }
 
@@ -29,6 +30,13 @@ pub enum AuthField {
     Subdomain,
     Email,
     Token,
+}
+
+#[derive(Debug, Clone)]
+pub struct FindProject {
+    pub key: String,
+    pub name: String,
+    pub is_favorite: bool,
 }
 
 pub struct App {
@@ -54,6 +62,13 @@ pub struct App {
     pub token_input: String,
     pub is_validating: bool,
     pub auth_error: Option<String>,
+
+    // Find modal
+    pub find_modal_open: bool,
+    pub find_input: String,
+    pub find_results: Vec<FindProject>,
+    pub find_selected: usize,
+    pub find_loading: bool,
 
     // Async messaging
     pub message_tx: mpsc::UnboundedSender<AppMessage>,
@@ -123,6 +138,12 @@ impl App {
             is_validating: false,
             auth_error: None,
 
+            find_modal_open: false,
+            find_input: String::new(),
+            find_results: Vec::new(),
+            find_selected: 0,
+            find_loading: false,
+
             message_tx,
             http_client: reqwest::Client::new(),
 
@@ -171,6 +192,22 @@ impl App {
                 self.is_validating = false;
                 self.auth_error = Some(e.to_string());
             }
+            AppMessage::SearchResults(Ok(projects)) => {
+                let favorites: Vec<&str> = self.projects.iter().map(|f| f.key.as_str()).collect();
+                self.find_results = projects
+                    .into_iter()
+                    .map(|p| FindProject {
+                        is_favorite: favorites.contains(&p.key.as_str()),
+                        key: p.key,
+                        name: p.name,
+                    })
+                    .collect();
+                self.find_loading = false;
+                self.find_selected = 0;
+            }
+            AppMessage::SearchResults(Err(_)) => {
+                self.find_loading = false;
+            }
             AppMessage::Tick => {}
         }
     }
@@ -184,6 +221,7 @@ impl App {
         match self.focus {
             FocusLayer::Auth => self.handle_auth_key(key),
             FocusLayer::Settings => self.handle_settings_key(key),
+            FocusLayer::Find => self.handle_find_key(key),
             FocusLayer::ProjectDropdown => self.handle_dropdown_key(key),
             FocusLayer::Main => self.handle_main_key(key),
         }
@@ -199,6 +237,7 @@ impl App {
                 self.project_selector_open = true;
                 self.focus = FocusLayer::ProjectDropdown;
             }
+            KeyCode::Char('f') => self.open_find(),
             KeyCode::Char(',') => self.open_settings(),
             _ => {}
         }
@@ -223,6 +262,15 @@ impl App {
             KeyCode::Esc => {
                 self.project_selector_open = false;
                 self.focus = FocusLayer::Main;
+            }
+            KeyCode::Char('s') => {
+                if let Some(project) = self.projects.get(self.selected_project).cloned() {
+                    self.remove_favorite(&project.key);
+                    if self.projects.is_empty() {
+                        self.project_selector_open = false;
+                        self.focus = FocusLayer::Main;
+                    }
+                }
             }
             _ => {}
         }
@@ -269,6 +317,130 @@ impl App {
     fn open_settings(&mut self) {
         self.settings_open = true;
         self.focus = FocusLayer::Settings;
+    }
+
+    fn open_find(&mut self) {
+        self.find_modal_open = true;
+        self.find_input.clear();
+        self.find_results.clear();
+        self.find_selected = 0;
+        self.focus = FocusLayer::Find;
+    }
+
+    fn handle_find_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.find_modal_open = false;
+                self.focus = FocusLayer::Main;
+            }
+            KeyCode::Enter => {
+                if self.find_results.is_empty() {
+                    self.find_loading = true;
+                    self.search_projects();
+                } else if let Some(project) = self.find_results.get(self.find_selected).cloned() {
+                    self.add_favorite(&project);
+                    self.selected_project = self
+                        .projects
+                        .iter()
+                        .position(|p| p.key == project.key)
+                        .unwrap_or(0);
+                    self.find_modal_open = false;
+                    self.focus = FocusLayer::Main;
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.find_selected > 0 {
+                    self.find_selected -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.find_selected < self.find_results.len().saturating_sub(1) {
+                    self.find_selected += 1;
+                }
+            }
+            KeyCode::Char('s') if !self.find_results.is_empty() => {
+                if let Some(project) = self.find_results.get(self.find_selected).cloned() {
+                    if project.is_favorite {
+                        self.remove_favorite(&project.key);
+                    } else {
+                        self.add_favorite(&project);
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                self.find_input.pop();
+                self.find_results.clear();
+            }
+            KeyCode::Char(c) => {
+                self.find_input.push(c);
+                self.find_results.clear();
+            }
+            _ => {}
+        }
+    }
+
+    fn search_projects(&self) {
+        if self.find_input.is_empty() {
+            return;
+        }
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let query = self.find_input.clone();
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let result = provider.search_projects(&query).await;
+            let _ = tx.send(AppMessage::SearchResults(result));
+        });
+    }
+
+    fn add_favorite(&mut self, project: &FindProject) {
+        let already = self.config.jira.favorites.iter().any(|f| f.key == project.key);
+        if already {
+            return;
+        }
+        self.config.jira.favorites.push(FavoriteProject {
+            key: project.key.clone(),
+            name: project.name.clone(),
+        });
+        let _ = config::save_config(&self.config);
+
+        if !self.projects.iter().any(|p| p.key == project.key) {
+            self.projects.push(FavoriteProject {
+                key: project.key.clone(),
+                name: project.name.clone(),
+            });
+        }
+
+        for p in &mut self.find_results {
+            if p.key == project.key {
+                p.is_favorite = true;
+            }
+        }
+    }
+
+    fn remove_favorite(&mut self, key: &str) {
+        self.config.jira.favorites.retain(|f| f.key != key);
+        let _ = config::save_config(&self.config);
+
+        self.projects.retain(|p| p.key != key);
+        if self.selected_project >= self.projects.len() && !self.projects.is_empty() {
+            self.selected_project = self.projects.len() - 1;
+        }
+
+        for p in &mut self.find_results {
+            if p.key == key {
+                p.is_favorite = false;
+            }
+        }
     }
 
     fn open_auth(&mut self) {
@@ -377,6 +549,16 @@ impl App {
                 return;
             }
 
+            if self.find_modal_open {
+                self.handle_find_mouse(pos);
+                return;
+            }
+
+            if self.project_selector_open {
+                self.handle_dropdown_mouse(pos);
+                return;
+            }
+
             if hit(pos, self.click_regions.header.tab_backlog) {
                 self.active_tab = Tab::Backlog;
             } else if hit(pos, self.click_regions.header.tab_board) {
@@ -388,12 +570,62 @@ impl App {
                 } else {
                     FocusLayer::Main
                 };
+            } else if hit(pos, self.click_regions.header.find_link) {
+                self.open_find();
             } else if hit(pos, self.click_regions.header.settings_link) {
                 self.open_settings();
             } else if hit(pos, self.click_regions.header.login_link) {
                 self.open_auth();
             } else if hit(pos, self.click_regions.header.logout_link) {
                 self.logout();
+            }
+        }
+    }
+
+    fn handle_dropdown_mouse(&mut self, pos: (u16, u16)) {
+        for (i, area) in self.click_regions.project_dropdown.items.iter().enumerate() {
+            if hit(pos, Some(*area)) {
+                self.selected_project = i;
+                self.project_selector_open = false;
+                self.focus = FocusLayer::Main;
+                return;
+            }
+        }
+        // Click outside dropdown closes it
+        if !hit(pos, self.click_regions.project_dropdown.bounds) {
+            self.project_selector_open = false;
+            self.focus = FocusLayer::Main;
+        }
+    }
+
+    fn handle_find_mouse(&mut self, pos: (u16, u16)) {
+        for (i, area) in self.click_regions.find_modal.star_areas.iter().enumerate() {
+            if hit(pos, Some(*area)) {
+                if let Some(project) = self.find_results.get(i).cloned() {
+                    if project.is_favorite {
+                        self.remove_favorite(&project.key);
+                    } else {
+                        self.add_favorite(&project);
+                    }
+                }
+                return;
+            }
+        }
+
+        for (i, area) in self.click_regions.find_modal.result_areas.iter().enumerate() {
+            if hit(pos, Some(*area)) {
+                self.find_selected = i;
+                if let Some(project) = self.find_results.get(i).cloned() {
+                    self.add_favorite(&project);
+                    self.selected_project = self
+                        .projects
+                        .iter()
+                        .position(|p| p.key == project.key)
+                        .unwrap_or(0);
+                    self.find_modal_open = false;
+                    self.focus = FocusLayer::Main;
+                }
+                return;
             }
         }
     }
