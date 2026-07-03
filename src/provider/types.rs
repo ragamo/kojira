@@ -49,6 +49,7 @@ pub struct JiraIssueFields {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct JiraStatus {
+    pub id: Option<String>,
     pub name: String,
     #[serde(rename = "statusCategory")]
     pub status_category: Option<JiraStatusCategory>,
@@ -78,4 +79,49 @@ pub struct JiraParentField {
 #[derive(Debug, Clone, Deserialize)]
 pub struct JiraParentFields {
     pub summary: String,
+}
+
+// Agile API types
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraBoardListResponse {
+    #[serde(default)]
+    pub values: Vec<JiraBoard>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraBoard {
+    pub id: u64,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub board_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraBoardConfig {
+    #[serde(rename = "columnConfig")]
+    pub column_config: JiraColumnConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraColumnConfig {
+    pub columns: Vec<JiraBoardColumn>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraBoardColumn {
+    pub name: String,
+    #[serde(default)]
+    pub statuses: Vec<JiraColumnStatus>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraColumnStatus {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraBoardIssuesResponse {
+    #[serde(default)]
+    pub issues: Vec<JiraIssue>,
 }

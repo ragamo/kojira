@@ -142,67 +142,80 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     let bg_block = Block::default().style(Style::default().bg(t.header_bg));
     frame.render_widget(bg_block, area);
 
-    let tabs_layout = Layout::horizontal([
-        Constraint::Length(10),
-        Constraint::Length(8),
-        Constraint::Min(0),
-    ])
-    .split(area);
+    let mut x = area.x;
+    let mut tab_areas: Vec<(Rect, usize)> = Vec::new();
 
+    // Tab 0: Backlog
+    let backlog_label = " backlog ";
+    let backlog_w = backlog_label.len() as u16;
     let backlog_style = if app.active_tab == Tab::Backlog {
         Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(t.text_dim)
     };
+    let backlog_area = Rect { x, y: area.y, width: backlog_w, height: 1 };
+    frame.render_widget(Paragraph::new(Span::styled(backlog_label, backlog_style)), backlog_area);
+    tab_areas.push((backlog_area, 0));
+    x += backlog_w + 1;
 
-    let board_style = if app.active_tab == Tab::Board {
-        Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(t.text_dim)
+    // Board tabs
+    for (i, bt) in app.board_tabs.iter().enumerate() {
+        let label = format!(" {} ", bt.board_name);
+        let w = label.len() as u16;
+        if x + w > area.x + area.width.saturating_sub(15) {
+            break;
+        }
+        let is_active = app.active_tab == Tab::Board(bt.board_id);
+        let style = if is_active {
+            Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(t.text_dim)
+        };
+        let tab_area = Rect { x, y: area.y, width: w, height: 1 };
+        frame.render_widget(Paragraph::new(Span::styled(&label, style)), tab_area);
+        tab_areas.push((tab_area, i + 1));
+        x += w + 1;
+    }
+
+    // "+" button
+    let add_label = " + ";
+    let add_w = add_label.len() as u16;
+    let add_area = Rect { x, y: area.y, width: add_w, height: 1 };
+    frame.render_widget(
+        Paragraph::new(Span::styled(add_label, Style::default().fg(t.accent))),
+        add_area,
+    );
+    app.click_regions.header.tab_add = Some(add_area);
+
+    app.click_regions.header.tab_areas = tab_areas;
+
+    // Settings link on the header row above
+    let remaining = Rect {
+        x: add_area.x + add_w,
+        y: area.y.saturating_sub(1),
+        width: area.x + area.width - (add_area.x + add_w),
+        height: 1,
     };
-
-    let backlog_tab = Paragraph::new(Span::styled(" backlog ", backlog_style));
-    let board_tab = Paragraph::new(Span::styled(" board ", board_style));
-
     let settings_link = Paragraph::new(Span::styled(
         "settings ",
         Style::default().fg(t.text_dim),
     ))
     .alignment(Alignment::Right);
-
-    let settings_row = Rect {
-        x: tabs_layout[2].x,
-        y: tabs_layout[2].y.saturating_sub(1),
-        width: tabs_layout[2].width,
-        height: 1,
-    };
-
-    frame.render_widget(backlog_tab, tabs_layout[0]);
-    frame.render_widget(board_tab, tabs_layout[1]);
-    frame.render_widget(settings_link, settings_row);
-
-    app.click_regions.header.tab_backlog = Some(tabs_layout[0]);
-    app.click_regions.header.tab_board = Some(tabs_layout[1]);
+    frame.render_widget(settings_link, remaining);
 
     let settings_width = 9u16;
     app.click_regions.header.settings_link = Some(Rect {
-        x: settings_row.x + settings_row.width.saturating_sub(settings_width),
-        y: settings_row.y,
+        x: remaining.x + remaining.width.saturating_sub(settings_width),
+        y: remaining.y,
         width: settings_width,
         height: 1,
     });
 }
 
 fn render_content(frame: &mut Frame, app: &mut App, area: Rect) {
-    match app.active_tab {
+    match &app.active_tab.clone() {
         Tab::Backlog => crate::ui::backlog_view::render(frame, app, area),
-        Tab::Board => {
-            let t = app.theme;
-            let content = Paragraph::new("Board view")
-                .style(Style::default().fg(t.text_dim))
-                .alignment(Alignment::Center);
-            frame.render_widget(content, area);
-        }
+        Tab::Board(id) => crate::ui::board_view::render(frame, app, *id, area),
     }
 }
 

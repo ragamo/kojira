@@ -22,8 +22,8 @@ pub struct HeaderRegion {
     pub settings_link: Option<Rect>,
     pub login_link: Option<Rect>,
     pub logout_link: Option<Rect>,
-    pub tab_backlog: Option<Rect>,
-    pub tab_board: Option<Rect>,
+    pub tab_areas: Vec<(Rect, usize)>,
+    pub tab_add: Option<Rect>,
 }
 
 #[derive(Default)]

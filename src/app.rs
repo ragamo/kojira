@@ -4,18 +4,34 @@ use ratatui::prelude::Rect;
 use tokio::sync::mpsc;
 
 use crate::config;
-use crate::config::types::{AppConfig, FavoriteProject};
+use crate::config::types::{AppConfig, FavoriteProject, OpenBoard};
 use crate::event::{AppEvent, AppMessage};
 use crate::provider::jira::JiraProvider;
-use crate::provider::types::JiraIssue;
+use crate::provider::types::{JiraBoard, JiraIssue};
 use crate::table_nav::TableNav;
 use crate::theme::{self, Theme};
 use crate::ui::click_regions::ClickRegions;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
     Backlog,
-    Board,
+    Board(u64),
+}
+
+#[derive(Debug, Clone)]
+pub struct BoardTab {
+    pub board_id: u64,
+    pub board_name: String,
+    pub columns: Vec<BoardColumn>,
+    pub loading: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BoardColumn {
+    pub name: String,
+    pub status_ids: Vec<String>,
+    pub issues: Vec<JiraIssue>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +40,7 @@ pub enum FocusLayer {
     Settings,
     Auth,
     Find,
+    BoardPicker,
     ProjectDropdown,
 }
 
@@ -71,6 +88,13 @@ pub struct App {
     pub backlog_error: Option<String>,
     pub backlog_nav: TableNav,
 
+    // Board tabs
+    pub board_tabs: Vec<BoardTab>,
+    pub board_picker_open: bool,
+    pub board_picker_boards: Vec<JiraBoard>,
+    pub board_picker_selected: usize,
+    pub board_picker_loading: bool,
+
     // Find modal
     pub find_modal_open: bool,
     pub find_input: String,
@@ -115,6 +139,21 @@ impl App {
         let projects = config.jira.favorites.clone();
         let logged_in = config.auth.token.is_some();
         let user_email = config.auth.email.clone();
+
+        let current_project_key = projects.first().map(|p| p.key.clone()).unwrap_or_default();
+        let board_tabs: Vec<BoardTab> = config
+            .jira
+            .open_boards
+            .iter()
+            .filter(|b| b.project_key == current_project_key)
+            .map(|b| BoardTab {
+                board_id: b.board_id,
+                board_name: b.board_name.clone(),
+                columns: Vec::new(),
+                loading: true,
+                error: None,
+            })
+            .collect();
         let subdomain = config
             .jira
             .base_url
@@ -150,6 +189,12 @@ impl App {
             backlog_loading: false,
             backlog_error: None,
             backlog_nav: TableNav::default(),
+
+            board_tabs,
+            board_picker_open: false,
+            board_picker_boards: Vec::new(),
+            board_picker_selected: 0,
+            board_picker_loading: false,
 
             find_modal_open: false,
             find_input: String::new(),
@@ -218,6 +263,69 @@ impl App {
                 self.backlog_loading = false;
                 self.backlog_error = Some(e.to_string());
             }
+            AppMessage::BoardsLoaded(Ok(boards)) => {
+                self.board_picker_boards = boards;
+                self.board_picker_loading = false;
+            }
+            AppMessage::BoardsLoaded(Err(_)) => {
+                self.board_picker_loading = false;
+            }
+            AppMessage::BoardDataLoaded(board_id, Ok((cfg, issues))) => {
+                if let Some(tab) = self.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
+                    tab.columns = cfg
+                        .column_config
+                        .columns
+                        .into_iter()
+                        .map(|col| {
+                            let status_ids: Vec<String> =
+                                col.statuses.into_iter().map(|s| s.id).collect();
+                            BoardColumn {
+                                name: col.name,
+                                status_ids,
+                                issues: Vec::new(),
+                            }
+                        })
+                        .collect();
+
+                    for issue in &issues {
+                        let issue_status_id = issue.fields.status.id.clone().unwrap_or_default();
+                        let placed = tab.columns.iter_mut().any(|col| {
+                            if col.status_ids.contains(&issue_status_id) {
+                                col.issues.push(issue.clone());
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        if !placed {
+                            // Fallback: match by column name ~= status name
+                            let status_name = &issue.fields.status.name;
+                            let placed_by_name = tab.columns.iter_mut().any(|col| {
+                                if col.name.eq_ignore_ascii_case(status_name) {
+                                    col.issues.push(issue.clone());
+                                    true
+                                } else {
+                                    false
+                                }
+                            });
+                            if !placed_by_name {
+                                if let Some(col) = tab.columns.first_mut() {
+                                    col.issues.push(issue.clone());
+                                }
+                            }
+                        }
+                    }
+
+                    tab.loading = false;
+                    tab.error = None;
+                }
+            }
+            AppMessage::BoardDataLoaded(board_id, Err(e)) => {
+                if let Some(tab) = self.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
+                    tab.loading = false;
+                    tab.error = Some(e.to_string());
+                }
+            }
             AppMessage::SearchResults(Ok(projects)) => {
                 let favorites: Vec<&str> = self.projects.iter().map(|f| f.key.as_str()).collect();
                 self.find_results = projects
@@ -248,6 +356,7 @@ impl App {
             FocusLayer::Auth => self.handle_auth_key(key),
             FocusLayer::Settings => self.handle_settings_key(key),
             FocusLayer::Find => self.handle_find_key(key),
+            FocusLayer::BoardPicker => self.handle_board_picker_key(key),
             FocusLayer::ProjectDropdown => self.handle_dropdown_key(key),
             FocusLayer::Main => self.handle_main_key(key),
         }
@@ -256,20 +365,23 @@ impl App {
     fn handle_main_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.running = false,
-            KeyCode::Tab => self.toggle_tab(),
+            KeyCode::Tab => self.next_tab(),
+            KeyCode::BackTab => self.prev_tab(),
             KeyCode::Char('1') => self.active_tab = Tab::Backlog,
-            KeyCode::Char('2') => self.active_tab = Tab::Board,
+            KeyCode::Char(c @ '2'..='9') => {
+                let idx = (c as usize) - ('2' as usize);
+                if idx < self.board_tabs.len() {
+                    self.active_tab = Tab::Board(self.board_tabs[idx].board_id);
+                }
+            }
             KeyCode::Char('p') => {
                 self.project_selector_open = true;
                 self.focus = FocusLayer::ProjectDropdown;
             }
             KeyCode::Char('f') => self.open_find(),
-            KeyCode::Char('r') => {
-                self.backlog_loading = true;
-                self.backlog_error = None;
-                self.load_backlog();
-            }
+            KeyCode::Char('r') => self.refresh_active_tab(),
             KeyCode::Char(',') => self.open_settings(),
+            KeyCode::Char('x') => self.close_active_board_tab(),
             KeyCode::Down | KeyCode::Char('j') if self.active_tab == Tab::Backlog => {
                 self.backlog_nav.move_down(self.backlog_issues.len());
             }
@@ -633,15 +745,31 @@ impl App {
                 return;
             }
 
+            if self.board_picker_open {
+                return;
+            }
+
             if self.project_selector_open {
                 self.handle_dropdown_mouse(pos);
                 return;
             }
 
-            if hit(pos, self.click_regions.header.tab_backlog) {
-                self.active_tab = Tab::Backlog;
-            } else if hit(pos, self.click_regions.header.tab_board) {
-                self.active_tab = Tab::Board;
+            let mut tab_clicked = false;
+            for (area, idx) in &self.click_regions.header.tab_areas {
+                if hit(pos, Some(*area)) {
+                    if *idx == 0 {
+                        self.active_tab = Tab::Backlog;
+                    } else if let Some(bt) = self.board_tabs.get(*idx - 1) {
+                        self.active_tab = Tab::Board(bt.board_id);
+                    }
+                    tab_clicked = true;
+                    break;
+                }
+            }
+            if tab_clicked {
+                // handled
+            } else if hit(pos, self.click_regions.header.tab_add) {
+                self.open_board_picker();
             } else if hit(pos, self.click_regions.header.project_selector) {
                 self.project_selector_open = !self.project_selector_open;
                 self.focus = if self.project_selector_open {
@@ -756,11 +884,172 @@ impl App {
         }
     }
 
-    fn toggle_tab(&mut self) {
-        self.active_tab = match self.active_tab {
-            Tab::Backlog => Tab::Board,
-            Tab::Board => Tab::Backlog,
+    fn next_tab(&mut self) {
+        let tabs = self.all_tab_ids();
+        let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
+        let next_idx = (current_idx + 1) % tabs.len();
+        self.active_tab = tabs[next_idx].clone();
+    }
+
+    fn prev_tab(&mut self) {
+        let tabs = self.all_tab_ids();
+        let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
+        let prev_idx = if current_idx == 0 { tabs.len() - 1 } else { current_idx - 1 };
+        self.active_tab = tabs[prev_idx].clone();
+    }
+
+    fn all_tab_ids(&self) -> Vec<Tab> {
+        let mut tabs = vec![Tab::Backlog];
+        for bt in &self.board_tabs {
+            tabs.push(Tab::Board(bt.board_id));
+        }
+        tabs
+    }
+
+    fn refresh_active_tab(&mut self) {
+        match &self.active_tab {
+            Tab::Backlog => {
+                self.backlog_loading = true;
+                self.backlog_error = None;
+                self.load_backlog();
+            }
+            Tab::Board(id) => {
+                let board_id = *id;
+                if let Some(tab) = self.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
+                    tab.loading = true;
+                    tab.error = None;
+                }
+                self.load_board_data(board_id);
+            }
+        }
+    }
+
+    fn close_active_board_tab(&mut self) {
+        if let Tab::Board(id) = &self.active_tab {
+            let board_id = *id;
+            self.board_tabs.retain(|t| t.board_id != board_id);
+            self.active_tab = Tab::Backlog;
+            self.save_open_boards();
+        }
+    }
+
+    fn open_board_picker(&mut self) {
+        self.board_picker_open = true;
+        self.board_picker_selected = 0;
+        self.board_picker_boards.clear();
+        self.board_picker_loading = true;
+        self.focus = FocusLayer::BoardPicker;
+        self.load_boards_list();
+    }
+
+    fn handle_board_picker_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.board_picker_open = false;
+                self.focus = FocusLayer::Main;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.board_picker_selected > 0 {
+                    self.board_picker_selected -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.board_picker_selected < self.board_picker_boards.len().saturating_sub(1) {
+                    self.board_picker_selected += 1;
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(board) = self.board_picker_boards.get(self.board_picker_selected).cloned() {
+                    self.add_board_tab(board);
+                    self.board_picker_open = false;
+                    self.focus = FocusLayer::Main;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn add_board_tab(&mut self, board: JiraBoard) {
+        if self.board_tabs.iter().any(|t| t.board_id == board.id) {
+            self.active_tab = Tab::Board(board.id);
+            return;
+        }
+        let tab = BoardTab {
+            board_id: board.id,
+            board_name: board.name.clone(),
+            columns: Vec::new(),
+            loading: true,
+            error: None,
         };
+        self.board_tabs.push(tab);
+        self.active_tab = Tab::Board(board.id);
+        self.save_open_boards();
+        self.load_board_data(board.id);
+    }
+
+    fn save_open_boards(&self) {
+        let project_key = self
+            .projects
+            .get(self.selected_project)
+            .map(|p| p.key.clone())
+            .unwrap_or_default();
+        let mut config = self.config.clone();
+        config.jira.open_boards.retain(|b| b.project_key != project_key);
+        for bt in &self.board_tabs {
+            config.jira.open_boards.push(OpenBoard {
+                project_key: project_key.clone(),
+                board_id: bt.board_id,
+                board_name: bt.board_name.clone(),
+            });
+        }
+        let _ = config::save_config(&config);
+    }
+
+    fn load_boards_list(&self) {
+        let project = match self.projects.get(self.selected_project) {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let result = provider.get_boards(&project.key).await;
+            let _ = tx.send(AppMessage::BoardsLoaded(result));
+        });
+    }
+
+    pub fn load_board_data(&self, board_id: u64) {
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client.clone(), base_url.clone(), email.clone(), token.clone());
+            let config_result = provider.get_board_config(board_id).await;
+            let issues_result = provider.get_board_issues(board_id).await;
+            let result = match (config_result, issues_result) {
+                (Ok(cfg), Ok(issues)) => Ok((cfg, issues)),
+                (Err(e), _) | (_, Err(e)) => Err(e),
+            };
+            let _ = tx.send(AppMessage::BoardDataLoaded(board_id, result));
+        });
     }
 }
 

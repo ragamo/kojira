@@ -1,5 +1,7 @@
 pub mod auth_modal;
 pub mod backlog_view;
+pub mod board_picker;
+pub mod board_view;
 pub mod click_regions;
 pub mod find_modal;
 pub mod main_view;
@@ -18,6 +20,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     if app.find_modal_open {
         find_modal::render(frame, app);
+    }
+    if app.board_picker_open {
+        board_picker::render(frame, app);
     }
     if app.auth_open {
         auth_modal::render(frame, app);

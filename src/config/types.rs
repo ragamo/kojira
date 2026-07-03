@@ -28,10 +28,19 @@ pub struct JiraConfig {
     pub project: Option<String>,
     #[serde(default)]
     pub favorites: Vec<FavoriteProject>,
+    #[serde(default)]
+    pub open_boards: Vec<OpenBoard>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FavoriteProject {
     pub key: String,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenBoard {
+    pub project_key: String,
+    pub board_id: u64,
+    pub board_name: String,
 }

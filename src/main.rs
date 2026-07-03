@@ -32,6 +32,10 @@ async fn main() -> Result<()> {
     if app.logged_in && !app.projects.is_empty() {
         app.backlog_loading = true;
         app.load_backlog();
+        let board_ids: Vec<u64> = app.board_tabs.iter().map(|b| b.board_id).collect();
+        for id in board_ids {
+            app.load_board_data(id);
+        }
     }
 
     enable_raw_mode()?;
