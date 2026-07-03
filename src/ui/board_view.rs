@@ -188,7 +188,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             let card = Paragraph::new(lines);
             frame.render_widget(card, card_area);
 
-            y_offset += card_height;
+            y_offset += card_height + 1;
         }
     }
 }
