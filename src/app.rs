@@ -810,7 +810,9 @@ impl App {
                 self.create_modal.loading_epics = false;
             }
             AppMessage::IssueTypesLoaded(Ok(types)) => {
+                let task_idx = types.iter().position(|t| t.eq_ignore_ascii_case("task")).unwrap_or(0);
                 self.create_modal.issue_types = types;
+                self.create_modal.issue_type_idx = task_idx;
                 self.create_modal.loading_issue_types = false;
             }
             AppMessage::IssueTypesLoaded(Err(_)) => {
