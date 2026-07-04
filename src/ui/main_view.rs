@@ -8,7 +8,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
     let chunks = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
@@ -55,47 +55,60 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     let bg_block = Block::default().style(Style::default().bg(header_bg));
     frame.render_widget(bg_block, area);
 
-    let right_area = area;
-
-    let right_text = if app.logged_in {
+    // Left side: "kojira | author  logout"
+    let left_text = if app.logged_in {
         let name = app
             .user_display_name
             .as_deref()
             .or(app.user_email.as_deref())
             .unwrap_or("user");
-        vec![
-            Span::styled("kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+        Line::from(vec![
+            Span::styled(" kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
             Span::styled(" │ ", Style::default().fg(t.text_dim)),
             Span::styled(name, Style::default().fg(t.success)),
             Span::styled("  logout", Style::default().fg(t.text_dim)),
-            Span::raw(" "),
-        ]
+        ])
     } else {
-        vec![
-            Span::styled("kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+        Line::from(vec![
+            Span::styled(" kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
             Span::styled(" │ ", Style::default().fg(t.text_dim)),
             Span::styled("login", Style::default().fg(t.text_dim)),
-            Span::raw(" "),
-        ]
+        ])
     };
+    frame.render_widget(Paragraph::new(left_text), area);
 
-    let right_widget = Paragraph::new(Line::from(right_text)).alignment(Alignment::Right);
-    frame.render_widget(right_widget, right_area);
+    // Right side: "settings "
+    let settings_label = "settings ";
+    let settings_w = settings_label.len() as u16;
+    frame.render_widget(
+        Paragraph::new(Span::styled(settings_label, Style::default().fg(t.text_dim)))
+            .alignment(Alignment::Right),
+        area,
+    );
+
+    // Click regions
+    let settings_area = Rect {
+        x: area.x + area.width.saturating_sub(settings_w),
+        y: area.y,
+        width: settings_w,
+        height: 1,
+    };
+    app.click_regions.header.settings_link = Some(settings_area);
 
     if app.logged_in {
-        let logout_width = 8u16;
+        let logout_w = 6u16; // "logout"
         app.click_regions.header.logout_link = Some(Rect {
-            x: right_area.x + right_area.width.saturating_sub(logout_width + 1),
-            y: right_area.y,
-            width: logout_width,
+            x: area.x + area.width.saturating_sub(settings_w + 2 + logout_w),
+            y: area.y,
+            width: logout_w,
             height: 1,
         });
     } else {
-        let login_width = 6u16;
+        let login_w = 5u16; // "login"
         app.click_regions.header.login_link = Some(Rect {
-            x: right_area.x + right_area.width.saturating_sub(login_width + 1),
-            y: right_area.y,
-            width: login_width,
+            x: area.x + area.width.saturating_sub(settings_w + 2 + login_w),
+            y: area.y,
+            width: login_w,
             height: 1,
         });
     }
@@ -165,28 +178,6 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     app.click_regions.header.tab_add = Some(add_area);
 
     app.click_regions.header.tab_areas = tab_areas;
-
-    // Settings link on the header row above
-    let remaining = Rect {
-        x: add_area.x + add_w,
-        y: area.y.saturating_sub(1),
-        width: area.x + area.width - (add_area.x + add_w),
-        height: 1,
-    };
-    let settings_link = Paragraph::new(Span::styled(
-        "settings ",
-        Style::default().fg(t.text_dim),
-    ))
-    .alignment(Alignment::Right);
-    frame.render_widget(settings_link, remaining);
-
-    let settings_width = 9u16;
-    app.click_regions.header.settings_link = Some(Rect {
-        x: remaining.x + remaining.width.saturating_sub(settings_width),
-        y: remaining.y,
-        width: settings_width,
-        height: 1,
-    });
 }
 
 fn render_content(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -202,8 +193,6 @@ fn render_footer(frame: &mut Frame, theme: &Theme, area: Rect) {
         Span::styled(" quit ", Style::default().fg(theme.text_dim)),
         Span::styled("Tab", Style::default().fg(theme.accent)),
         Span::styled(" switch tab ", Style::default().fg(theme.text_dim)),
-        Span::styled("p", Style::default().fg(theme.accent)),
-        Span::styled(" projects ", Style::default().fg(theme.text_dim)),
         Span::styled("f", Style::default().fg(theme.accent)),
         Span::styled(" find ", Style::default().fg(theme.text_dim)),
         Span::styled(",", Style::default().fg(theme.accent)),
