@@ -275,7 +275,7 @@ fn render_footer(frame: &mut Frame, theme: &Theme, area: Rect) {
     let keys = vec![
         Span::styled(" q", Style::default().fg(theme.accent)),
         Span::styled(" quit ", Style::default().fg(theme.text_dim)),
-        Span::styled("Tab", Style::default().fg(theme.accent)),
+        Span::styled("Tab ←→", Style::default().fg(theme.accent)),
         Span::styled(" switch tab ", Style::default().fg(theme.text_dim)),
         Span::styled("x", Style::default().fg(theme.accent)),
         Span::styled(" close tab ", Style::default().fg(theme.text_dim)),
