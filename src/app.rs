@@ -510,7 +510,7 @@ impl App {
             focus: FocusLayer::Main,
 
             logged_in,
-            user_display_name: None,
+            user_display_name: config.auth.display_name.clone(),
             user_email: user_email.clone(),
             auth_open: false,
             auth_field: AuthField::Subdomain,
@@ -628,10 +628,11 @@ impl App {
             AppMessage::TokenValidated(Ok(user)) => {
                 self.is_validating = false;
                 self.logged_in = true;
-                self.user_display_name = Some(user.display_name);
+                self.user_display_name = Some(user.display_name.clone());
                 self.user_email = user.email.clone();
                 self.config.auth.token = Some(self.token_input.clone());
                 self.config.auth.email = Some(self.email_input.clone());
+                self.config.auth.display_name = Some(user.display_name);
                 let _ = config::save_config(&self.config);
                 self.auth_open = false;
                 self.auth_error = None;

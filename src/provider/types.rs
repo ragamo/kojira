@@ -137,7 +137,9 @@ pub struct IssueMetadata {
     pub reporter: Option<String>,
     pub labels: Vec<String>,
     pub created: Option<String>,
+    #[allow(dead_code)]
     pub start_date: Option<String>,
+    #[allow(dead_code)]
     pub due_date: Option<String>,
 }
 

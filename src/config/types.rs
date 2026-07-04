@@ -23,6 +23,7 @@ pub struct UiConfig {
 pub struct AuthConfig {
     pub token: Option<String>,
     pub email: Option<String>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

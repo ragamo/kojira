@@ -126,7 +126,7 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
             .or(app.user_email.as_deref())
             .unwrap_or("user");
         Line::from(vec![
-            Span::styled(format!("@{}", name), Style::default().fg(t.success)),
+            Span::styled(name, Style::default().fg(t.success)),
             Span::styled("  logout", Style::default().fg(t.text_dim)),
             Span::styled(" │ ", Style::default().fg(t.text_dim)),
             Span::styled(settings_label, Style::default().fg(t.text_dim)),
