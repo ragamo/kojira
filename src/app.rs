@@ -968,7 +968,6 @@ impl App {
                         let key = issue.key.clone();
                         issue.fields.status.name = transition.to.name.clone();
                         self.detail_transition_open = false;
-                        self.detail_transitions.clear();
                         self.do_transition(&key, &transition.id);
                     }
                 }
@@ -2051,7 +2050,6 @@ impl App {
                                     let key = issue.key.clone();
                                     issue.fields.status.name = transition.to.name.clone();
                                     self.detail_transition_open = false;
-                                    self.detail_transitions.clear();
                                     self.do_transition(&key, &transition.id);
                                 }
                             }
