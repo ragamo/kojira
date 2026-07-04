@@ -92,6 +92,17 @@ pub struct App {
     pub backlog_statuses: Vec<String>,
     pub column_order: Vec<String>,
 
+    // Detail panel
+    pub detail_open: bool,
+    pub detail_issue: Option<JiraIssue>,
+    pub detail_description: Option<String>,
+    pub detail_height: u16,
+    pub detail_scroll: u16,
+    pub detail_close_area: Option<Rect>,
+    pub detail_resize_area: Option<Rect>,
+    pub detail_url_area: Option<Rect>,
+    pub detail_dragging: bool,
+
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
     pub board_picker_open: bool,
@@ -206,6 +217,16 @@ impl App {
             backlog_filter: None,
             backlog_statuses: Vec::new(),
             column_order: Vec::new(),
+
+            detail_open: false,
+            detail_issue: None,
+            detail_description: None,
+            detail_height: 0,
+            detail_scroll: 0,
+            detail_close_area: None,
+            detail_resize_area: None,
+            detail_url_area: None,
+            detail_dragging: false,
 
             board_tabs,
             board_picker_open: false,
@@ -439,6 +460,21 @@ impl App {
             KeyCode::Char('r') => self.refresh_active_tab(),
             KeyCode::Char(',') => self.open_settings(),
             KeyCode::Char('x') => self.close_active_board_tab(),
+            KeyCode::Enter if self.active_tab == Tab::Backlog && !self.detail_open => {
+                self.open_detail_from_backlog();
+            }
+            KeyCode::Esc if self.detail_open => {
+                self.detail_open = false;
+                self.detail_issue = None;
+                self.detail_description = None;
+                self.detail_scroll = 0;
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.detail_open => {
+                self.detail_scroll = self.detail_scroll.saturating_add(1);
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.detail_open => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(1);
+            }
             KeyCode::Down | KeyCode::Char('j') if self.active_tab == Tab::Backlog => {
                 let count = self.filtered_backlog_count();
                 self.backlog_nav.move_down(count);
@@ -841,12 +877,38 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
+        let pos = (mouse.column, mouse.row);
+
         if let MouseEventKind::Moved = mouse.kind {
-            self.mouse_pos = (mouse.column, mouse.row);
+            self.mouse_pos = pos;
+            return;
+        }
+
+        if mouse.kind == MouseEventKind::Drag(MouseButton::Left) {
+            if self.detail_dragging {
+                if let Some(resize_area) = self.detail_resize_area {
+                    let panel_bottom = resize_area.y + self.detail_height;
+                    let new_height = panel_bottom.saturating_sub(pos.1);
+                    self.detail_height = new_height.max(6).min(panel_bottom.saturating_sub(6));
+                }
+            }
+            return;
+        }
+
+        if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
+            self.detail_dragging = false;
             return;
         }
 
         match mouse.kind {
+            MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.detail_open => {
+                self.detail_scroll = self.detail_scroll.saturating_add(2);
+                return;
+            }
+            MouseEventKind::ScrollUp if self.focus == FocusLayer::Main && self.detail_open => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(2);
+                return;
+            }
             MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
                 let count = self.filtered_backlog_count();
                 self.backlog_nav.scroll_down(count);
@@ -872,8 +934,6 @@ impl App {
         }
 
         if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
-            let pos = (mouse.column, mouse.row);
-
             if self.settings_open {
                 self.handle_settings_mouse(pos);
                 return;
@@ -891,6 +951,33 @@ impl App {
             if self.project_selector_open {
                 self.handle_dropdown_mouse(pos);
                 return;
+            }
+
+            if self.detail_open {
+                if hit(pos, self.detail_resize_area) {
+                    self.detail_dragging = true;
+                    return;
+                }
+                if hit(pos, self.detail_close_area) {
+                    self.detail_open = false;
+                    self.detail_issue = None;
+                    self.detail_description = None;
+                    self.detail_scroll = 0;
+                    return;
+                }
+                if hit(pos, self.detail_url_area) {
+                    if let Some(ref issue) = self.detail_issue {
+                        let base_url = self
+                            .config
+                            .jira
+                            .base_url
+                            .as_deref()
+                            .unwrap_or("https://jira.atlassian.net");
+                        let url = format!("{}/browse/{}", base_url, issue.key);
+                        let _ = open_url(&url);
+                    }
+                    return;
+                }
             }
 
             let mut tab_clicked = false;
@@ -924,6 +1011,36 @@ impl App {
                 self.open_auth();
             } else if hit(pos, self.click_regions.header.logout_link) {
                 self.logout();
+            }
+
+            // Board card clicks
+            if let Tab::Board(_) = &self.active_tab {
+                for (area, key) in &self.click_regions.board_cards.cards {
+                    if hit(pos, Some(*area)) {
+                        let issue = self
+                            .board_tabs
+                            .iter()
+                            .flat_map(|t| t.columns.iter())
+                            .flat_map(|c| c.issues.iter())
+                            .find(|i| i.key == *key)
+                            .cloned();
+                        if let Some(issue) = issue {
+                            self.open_detail_for_issue(&issue);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            // Backlog row clicks
+            if self.active_tab == Tab::Backlog {
+                for (i, area) in self.click_regions.backlog.row_areas.iter().enumerate() {
+                    if hit(pos, Some(*area)) {
+                        self.backlog_nav.selected = Some(self.backlog_nav.offset + i);
+                        self.open_detail_from_backlog();
+                        return;
+                    }
+                }
             }
 
             // Backlog filter clicks
@@ -1051,6 +1168,32 @@ impl App {
             self.settings_open = false;
             self.focus = FocusLayer::Main;
         }
+    }
+
+    fn open_detail_from_backlog(&mut self) {
+        let filtered: Vec<&JiraIssue> = self
+            .backlog_issues
+            .iter()
+            .filter(|issue| match &self.backlog_filter {
+                None => true,
+                Some(f) => issue.fields.status.name == *f,
+            })
+            .collect();
+        if let Some(issue) = self.backlog_nav.selected.and_then(|i| filtered.get(i)) {
+            self.detail_issue = Some((*issue).clone());
+            self.detail_description = None;
+            self.detail_open = true;
+            self.detail_height = 0;
+            self.detail_scroll = 0;
+        }
+    }
+
+    pub fn open_detail_for_issue(&mut self, issue: &JiraIssue) {
+        self.detail_issue = Some(issue.clone());
+        self.detail_description = None;
+        self.detail_open = true;
+        self.detail_height = 0;
+        self.detail_scroll = 0;
     }
 
     fn on_project_changed(&mut self) {
@@ -1299,4 +1442,20 @@ fn hit(pos: (u16, u16), area: Option<Rect>) -> bool {
         }
         None => false,
     }
+}
+
+fn open_url(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn()?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn()?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd").args(["/C", "start", url]).spawn()?;
+    }
+    Ok(())
 }

@@ -17,7 +17,33 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     render_header(frame, app, chunks[0]);
     render_tabs(frame, app, chunks[1]);
-    render_content(frame, app, chunks[2]);
+
+    if app.detail_open {
+        if app.detail_height == 0 {
+            app.detail_height = (chunks[2].height * 70 / 100).max(10);
+        }
+        let detail_h = app.detail_height.min(chunks[2].height.saturating_sub(4));
+        let content_h = chunks[2].height.saturating_sub(detail_h);
+        let splits = Layout::vertical([
+            Constraint::Length(content_h),
+            Constraint::Length(detail_h),
+        ])
+        .split(chunks[2]);
+        render_content(frame, app, splits[0]);
+        crate::ui::detail_panel::render(frame, app, splits[1]);
+        // Extend resize area to cover bottom border of content + top border of panel
+        let border_y = splits[0].y + splits[0].height.saturating_sub(1);
+        app.detail_resize_area = Some(Rect {
+            x: splits[1].x,
+            y: border_y,
+            width: splits[1].width,
+            height: 2,
+        });
+    } else {
+        app.detail_height = 0;
+        render_content(frame, app, chunks[2]);
+    }
+
     render_footer(frame, app.theme, chunks[3]);
 
     if app.project_selector_open {

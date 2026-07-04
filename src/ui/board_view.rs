@@ -248,6 +248,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 && mouse.1 >= card_area.y
                 && mouse.1 < card_area.y + card_area.height;
 
+            app.click_regions.board_cards.cards.push((card_area, issue.key.clone()));
+
             let card = if hovered {
                 Paragraph::new(lines).style(Style::default().bg(t.header_bg))
             } else {

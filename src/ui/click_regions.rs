@@ -4,6 +4,7 @@ use ratatui::prelude::Rect;
 pub struct ClickRegions {
     pub header: HeaderRegion,
     pub backlog: BacklogRegion,
+    pub board_cards: BoardCardRegion,
     pub find_modal: FindModalRegion,
     pub project_dropdown: ProjectDropdownRegion,
 }
@@ -12,6 +13,7 @@ impl ClickRegions {
     pub fn clear(&mut self) {
         self.header = HeaderRegion::default();
         self.backlog = BacklogRegion::default();
+        self.board_cards = BoardCardRegion::default();
         self.find_modal = FindModalRegion::default();
         self.project_dropdown = ProjectDropdownRegion::default();
     }
@@ -31,6 +33,12 @@ pub struct HeaderRegion {
 #[derive(Default)]
 pub struct BacklogRegion {
     pub filter_areas: Vec<Rect>,
+    pub row_areas: Vec<Rect>,
+}
+
+#[derive(Default)]
+pub struct BoardCardRegion {
+    pub cards: Vec<(Rect, String)>,
 }
 
 #[derive(Default)]

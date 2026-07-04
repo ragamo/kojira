@@ -3,6 +3,7 @@ pub mod backlog_view;
 pub mod board_picker;
 pub mod board_view;
 pub mod click_regions;
+pub mod detail_panel;
 pub mod find_modal;
 pub mod main_view;
 pub mod settings_modal;

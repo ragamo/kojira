@@ -230,6 +230,16 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     frame.render_widget(table, area);
 
+    let row_start_y = area.y + 2;
+    app.click_regions.backlog.row_areas = (0..visible_issues.len())
+        .map(|i| Rect {
+            x: area.x + 1,
+            y: row_start_y + i as u16,
+            width: area.width.saturating_sub(2),
+            height: 1,
+        })
+        .collect();
+
     if item_count > visible_rows {
         let mut scrollbar_state =
             ScrollbarState::new(item_count.saturating_sub(visible_rows))
