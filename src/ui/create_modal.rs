@@ -10,8 +10,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(t.accent))
-        .title(" New Issue ")
-        .title_style(Style::default().fg(t.text).add_modifier(Modifier::BOLD))
         .style(Style::default().bg(t.bg));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -49,41 +47,29 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     app.create_field_areas.clear();
     app.create_dropdown_areas.clear();
 
-    // === LEFT COLUMN: Title + Description ===
-
-    // Title label + input
-    let title_label_area = Rect { x: left.x + 1, y: left.y, width: left.width.saturating_sub(2), height: 1 };
-    frame.render_widget(
-        Paragraph::new(Span::styled("Title", Style::default().fg(t.text_dim))),
-        title_label_area,
-    );
+    // === LEFT COLUMN: Title (labeled "Create") + Description ===
 
     let title_border = if app.create_modal.active_field == CreateField::Title { t.accent } else { t.border };
-    let title_area = Rect { x: left.x + 1, y: left.y + 1, width: left.width.saturating_sub(2), height: 3 };
+    let title_area = Rect { x: left.x + 1, y: left.y, width: left.width.saturating_sub(2), height: 3 };
     let cursor = if app.create_modal.active_field == CreateField::Title { "▌" } else { "" };
     let title_widget = Paragraph::new(format!("{}{}", app.create_modal.title, cursor))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(title_border)),
+                .border_style(Style::default().fg(title_border))
+                .title(" Create ")
+                .title_style(Style::default().fg(t.text).add_modifier(Modifier::BOLD)),
         )
         .style(Style::default().fg(t.text));
     frame.render_widget(title_widget, title_area);
     app.create_field_areas.push((title_area, CreateField::Title));
 
-    // Description label + editor
-    let desc_label_y = left.y + 4;
-    let desc_label_area = Rect { x: left.x + 1, y: desc_label_y, width: left.width.saturating_sub(2), height: 1 };
-    frame.render_widget(
-        Paragraph::new(Span::styled("Description", Style::default().fg(t.text_dim))),
-        desc_label_area,
-    );
-
-    let desc_y = desc_label_y + 1;
-    let desc_h = left.height.saturating_sub(6);
+    // Description
+    let desc_y = left.y + 4;
+    let desc_h = left.height.saturating_sub(5);
     let desc_area = Rect { x: left.x + 1, y: desc_y, width: left.width.saturating_sub(2), height: desc_h };
     let focused = app.create_modal.active_field == CreateField::Description;
-    crate::ui::editor_widget::render_editor(frame, &mut app.create_modal.description_editor, desc_area, t, focused);
+    render_editor_with_label(frame, &mut app.create_modal.description_editor, desc_area, t, focused, "Description");
     app.create_field_areas.push((desc_area, CreateField::Description));
 
     // === RIGHT COLUMN: Assignee, Epic, Priority ===
@@ -91,14 +77,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let right_inner_w = right.width.saturating_sub(2);
 
     // Assignee
-    let assignee_label_area = Rect { x: right_inner_x, y: right.y, width: right_inner_w, height: 1 };
-    frame.render_widget(
-        Paragraph::new(Span::styled("Assignee", Style::default().fg(t.text_dim))),
-        assignee_label_area,
-    );
-
     let assignee_border = if app.create_modal.active_field == CreateField::Assignee { t.accent } else { t.border };
-    let assignee_area = Rect { x: right_inner_x, y: right.y + 1, width: right_inner_w, height: 3 };
+    let assignee_area = Rect { x: right_inner_x, y: right.y, width: right_inner_w, height: 3 };
     let assignee_text = if app.create_modal.loading_assignees {
         "Loading...".to_string()
     } else if let Some(idx) = app.create_modal.assignee_idx {
@@ -110,21 +90,17 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(assignee_border)),
+                .border_style(Style::default().fg(assignee_border))
+                .title(" Assignee ")
+                .title_style(Style::default().fg(t.text_dim)),
         );
     frame.render_widget(assignee_widget, assignee_area);
     app.create_field_areas.push((assignee_area, CreateField::Assignee));
 
     // Epic
-    let epic_y = right.y + 5;
-    let epic_label_area = Rect { x: right_inner_x, y: epic_y, width: right_inner_w, height: 1 };
-    frame.render_widget(
-        Paragraph::new(Span::styled("Epic", Style::default().fg(t.text_dim))),
-        epic_label_area,
-    );
-
+    let epic_y = right.y + 4;
     let epic_border = if app.create_modal.active_field == CreateField::Epic { t.accent } else { t.border };
-    let epic_area = Rect { x: right_inner_x, y: epic_y + 1, width: right_inner_w, height: 3 };
+    let epic_area = Rect { x: right_inner_x, y: epic_y, width: right_inner_w, height: 3 };
     let epic_text = if app.create_modal.loading_epics {
         "Loading...".to_string()
     } else if let Some(idx) = app.create_modal.epic_idx {
@@ -136,21 +112,17 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(epic_border)),
+                .border_style(Style::default().fg(epic_border))
+                .title(" Epic ")
+                .title_style(Style::default().fg(t.text_dim)),
         );
     frame.render_widget(epic_widget, epic_area);
     app.create_field_areas.push((epic_area, CreateField::Epic));
 
     // Priority
-    let priority_y = epic_y + 5;
-    let priority_label_area = Rect { x: right_inner_x, y: priority_y, width: right_inner_w, height: 1 };
-    frame.render_widget(
-        Paragraph::new(Span::styled("Priority", Style::default().fg(t.text_dim))),
-        priority_label_area,
-    );
-
+    let priority_y = epic_y + 4;
     let priority_border = if app.create_modal.active_field == CreateField::Priority { t.accent } else { t.border };
-    let priority_area = Rect { x: right_inner_x, y: priority_y + 1, width: right_inner_w, height: 3 };
+    let priority_area = Rect { x: right_inner_x, y: priority_y, width: right_inner_w, height: 3 };
     let priority_widget = Paragraph::new(Span::styled(
         PRIORITIES[app.create_modal.priority_idx],
         Style::default().fg(t.text),
@@ -158,14 +130,16 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(priority_border)),
+            .border_style(Style::default().fg(priority_border))
+            .title(" Priority ")
+            .title_style(Style::default().fg(t.text_dim)),
     );
     frame.render_widget(priority_widget, priority_area);
     app.create_field_areas.push((priority_area, CreateField::Priority));
 
     // Error message
     if let Some(ref err) = app.create_modal.error {
-        let err_y = priority_y + 5;
+        let err_y = priority_y + 4;
         let err_area = Rect { x: right_inner_x, y: err_y, width: right_inner_w, height: 1 };
         frame.render_widget(
             Paragraph::new(err.as_str()).style(Style::default().fg(t.error)),
@@ -248,4 +222,64 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     ]))
     .alignment(Alignment::Center);
     frame.render_widget(footer, footer_area);
+}
+
+fn render_editor_with_label(
+    frame: &mut Frame,
+    editor: &mut crate::app::SimpleEditor,
+    area: Rect,
+    t: &crate::theme::Theme,
+    focused: bool,
+    label: &str,
+) {
+    let border_color = if focused { t.accent } else { t.border };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(format!(" {} ", label))
+        .title_style(Style::default().fg(t.text_dim));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let visible_height = inner.height as usize;
+    if visible_height == 0 {
+        return;
+    }
+
+    let cursor_row = editor.cursor_row;
+
+    if focused {
+        if cursor_row < editor.scroll as usize {
+            editor.scroll = cursor_row as u16;
+        } else if cursor_row >= editor.scroll as usize + visible_height {
+            editor.scroll = (cursor_row + 1 - visible_height) as u16;
+        }
+    }
+
+    let scroll = editor.scroll as usize;
+    let lines_to_render: Vec<Line> = editor
+        .lines
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(visible_height)
+        .map(|(row_idx, line)| {
+            let is_cursor_row = focused && row_idx == cursor_row;
+            if is_cursor_row {
+                let col = editor.cursor_col.min(line.chars().count());
+                let before: String = line.chars().take(col).collect();
+                let cursor_char: String = line.chars().nth(col).map(|c| c.to_string()).unwrap_or(" ".to_string());
+                let after: String = line.chars().skip(col + 1).collect();
+                Line::from(vec![
+                    Span::styled(before, Style::default().fg(t.text)),
+                    Span::styled(cursor_char, Style::default().fg(t.bg).bg(t.accent)),
+                    Span::styled(after, Style::default().fg(t.text)),
+                ])
+            } else {
+                Line::from(Span::styled(line.as_str(), Style::default().fg(t.text)))
+            }
+        })
+        .collect();
+
+    frame.render_widget(Paragraph::new(lines_to_render), inner);
 }

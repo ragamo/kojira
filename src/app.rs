@@ -1925,14 +1925,69 @@ impl App {
                 return;
             }
 
+            if self.create_modal_open {
+                if hit(pos, self.create_resize_area) {
+                    self.create_dragging = true;
+                    return;
+                }
+                if hit(pos, self.create_close_area) {
+                    self.create_modal_open = false;
+                    self.focus = FocusLayer::Main;
+                    return;
+                }
+                // Click on dropdown items
+                if self.create_modal.list_open {
+                    for (i, area) in self.create_dropdown_areas.iter().enumerate() {
+                        if hit(pos, Some(*area)) {
+                            match self.create_modal.active_field {
+                                CreateField::Assignee => {
+                                    self.create_modal.assignee_idx = Some(i);
+                                }
+                                CreateField::Epic => {
+                                    self.create_modal.epic_idx = Some(i);
+                                }
+                                CreateField::Priority => {
+                                    self.create_modal.priority_idx = i;
+                                }
+                                _ => {}
+                            }
+                            self.create_modal.list_open = false;
+                            return;
+                        }
+                    }
+                    self.create_modal.list_open = false;
+                    return;
+                }
+                // Click on field areas
+                for (area, field) in &self.create_field_areas {
+                    if hit(pos, Some(*area)) {
+                        let clicked_field = *field;
+                        match clicked_field {
+                            CreateField::Assignee | CreateField::Epic | CreateField::Priority => {
+                                self.create_modal.active_field = clicked_field;
+                                self.create_modal.list_open = true;
+                                self.create_modal.list_scroll = match clicked_field {
+                                    CreateField::Assignee => self.create_modal.assignee_idx.unwrap_or(0),
+                                    CreateField::Epic => self.create_modal.epic_idx.unwrap_or(0),
+                                    CreateField::Priority => self.create_modal.priority_idx,
+                                    _ => 0,
+                                };
+                            }
+                            _ => {
+                                self.create_modal.active_field = clicked_field;
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+
             if self.detail_open {
                 if self.detail_transition_open {
-                    // Click on button toggles off
                     if hit(pos, self.detail_transition_btn_area) {
                         self.detail_transition_open = false;
                         return;
                     }
-                    // Click anywhere else closes dropdown (click outside)
                     self.detail_transition_open = false;
                     return;
                 }
@@ -1953,62 +2008,6 @@ impl App {
                 if hit(pos, self.detail_resize_area) {
                     self.detail_dragging = true;
                     return;
-                }
-                if hit(pos, self.create_resize_area) {
-                    self.create_dragging = true;
-                    return;
-                }
-                if hit(pos, self.create_close_area) {
-                    self.create_modal_open = false;
-                    self.focus = FocusLayer::Main;
-                    return;
-                }
-                if self.create_modal_open {
-                    // Click on dropdown items
-                    if self.create_modal.list_open {
-                        for (i, area) in self.create_dropdown_areas.iter().enumerate() {
-                            if hit(pos, Some(*area)) {
-                                match self.create_modal.active_field {
-                                    CreateField::Assignee => {
-                                        self.create_modal.assignee_idx = Some(i);
-                                    }
-                                    CreateField::Epic => {
-                                        self.create_modal.epic_idx = Some(i);
-                                    }
-                                    CreateField::Priority => {
-                                        self.create_modal.priority_idx = i;
-                                    }
-                                    _ => {}
-                                }
-                                self.create_modal.list_open = false;
-                                return;
-                            }
-                        }
-                        self.create_modal.list_open = false;
-                        return;
-                    }
-                    // Click on field areas
-                    for (area, field) in &self.create_field_areas {
-                        if hit(pos, Some(*area)) {
-                            let clicked_field = *field;
-                            match clicked_field {
-                                CreateField::Assignee | CreateField::Epic | CreateField::Priority => {
-                                    self.create_modal.active_field = clicked_field;
-                                    self.create_modal.list_open = true;
-                                    self.create_modal.list_scroll = match clicked_field {
-                                        CreateField::Assignee => self.create_modal.assignee_idx.unwrap_or(0),
-                                        CreateField::Epic => self.create_modal.epic_idx.unwrap_or(0),
-                                        CreateField::Priority => self.create_modal.priority_idx,
-                                        _ => 0,
-                                    };
-                                }
-                                _ => {
-                                    self.create_modal.active_field = clicked_field;
-                                }
-                            }
-                            return;
-                        }
-                    }
                 }
                 for (i, tab_area) in self.detail_tab_areas.iter().enumerate() {
                     if hit(pos, Some(*tab_area)) {
