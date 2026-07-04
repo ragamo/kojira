@@ -348,6 +348,7 @@ pub struct App {
     pub card_dragging: Option<CardDrag>,
     pub card_drag_target: Option<(usize, usize)>,
     pub card_drag_transition_target: Option<(String, String)>,
+    pub card_drag_pending_transition: bool,
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
@@ -560,6 +561,7 @@ impl App {
             card_dragging: None,
             card_drag_target: None,
             card_drag_transition_target: None,
+            card_drag_pending_transition: false,
             theme_selected,
             theme_confirmed: theme_selected,
             header_bg_confirmed: header_bg_soft,
@@ -658,6 +660,7 @@ impl App {
                 if let Some((drag_key, ref target_col_name)) = self.card_drag_transition_target.clone() {
                     if drag_key == key {
                         if let Some(tr) = transitions.iter().find(|t| t.to.name.eq_ignore_ascii_case(&target_col_name) || t.name.eq_ignore_ascii_case(&target_col_name)) {
+                            self.card_drag_pending_transition = true;
                             self.do_transition(&key, &tr.id.clone());
                         } else {
                             // No valid transition found — rollback
@@ -703,17 +706,24 @@ impl App {
                 self.detail_editing = false;
             }
             AppMessage::TransitionDone(key, Ok(())) => {
-                if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
-                    self.detail_transition_open = false;
-                    self.load_issue_detail(&key.clone());
-                    self.reload_all_list_tabs();
-                }
-                // Also reload board if active
-                if let Tab::Board(board_id) = self.active_tab {
-                    self.load_board_data(board_id);
+                if self.card_drag_pending_transition {
+                    // Drag-drop: optimistic UI already correct, don't reload
+                    self.card_drag_pending_transition = false;
+                } else {
+                    if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
+                        self.detail_transition_open = false;
+                        self.load_issue_detail(&key.clone());
+                        self.reload_all_list_tabs();
+                    }
+                    if let Tab::Board(board_id) = self.active_tab {
+                        self.load_board_data(board_id);
+                    }
                 }
             }
             AppMessage::TransitionDone(_, Err(_)) => {
+                if self.card_drag_pending_transition {
+                    self.card_drag_pending_transition = false;
+                }
                 // Rollback optimistic update
                 if let Tab::Board(board_id) = self.active_tab {
                     self.load_board_data(board_id);
