@@ -161,27 +161,62 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     frame.render_widget(Paragraph::new(header_lines), chunks[0]);
 
-    // Transition button (right side of header, line 1)
+    // Transition button (right side of header, 3 rows tall like lazyglab merge btn)
     let mut transition_btn_area: Option<Rect> = None;
     if !app.detail_transitions.is_empty() {
         let current_status = &issue.fields.status.name;
-        let btn_label = format!(" {} ⏷ ", current_status);
-        let btn_width = btn_label.chars().count() as u16;
-        let btn_area = Rect {
-            x: inner.x + inner.width.saturating_sub(btn_width),
-            y: chunks[0].y,
-            width: btn_width,
-            height: 1,
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                btn_label,
-                Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD),
-            )),
-            btn_area,
-        );
-        app.detail_transition_btn_area = Some(btn_area);
-        transition_btn_area = Some(btn_area);
+        let text = format!("{} ⏷", current_status);
+        let text_width = text.chars().count() as u16;
+        let btn_width = 2 + text_width + 2; // padding: 2 left + text + 2 right
+        let btn_height: u16 = 3;
+        let right_margin: u16 = 1;
+
+        if inner.width >= btn_width + right_margin + 4 && chunks[0].height >= btn_height {
+            let btn_area = Rect {
+                x: inner.x + inner.width.saturating_sub(btn_width + right_margin),
+                y: chunks[0].y,
+                width: btn_width,
+                height: btn_height,
+            };
+
+            let btn_bg = t.accent;
+            let fg = t.bg;
+            let outer_bg = t.bg;
+
+            // Top row: ▄
+            let top_row = Rect { x: btn_area.x, y: btn_area.y, width: btn_width, height: 1 };
+            frame.render_widget(
+                Paragraph::new(Span::styled(
+                    "▄".repeat(btn_width as usize),
+                    Style::default().fg(btn_bg).bg(outer_bg),
+                )),
+                top_row,
+            );
+
+            // Middle row: padding + text + padding
+            let mid_row = Rect { x: btn_area.x, y: btn_area.y + 1, width: btn_width, height: 1 };
+            let bg_style = Style::default().fg(fg).bg(btn_bg);
+            let text_style = bg_style.add_modifier(Modifier::BOLD);
+            let mid_line = Line::from(vec![
+                Span::styled("  ", bg_style),
+                Span::styled(&text, text_style),
+                Span::styled("  ", bg_style),
+            ]);
+            frame.render_widget(Paragraph::new(mid_line), mid_row);
+
+            // Bottom row: ▀
+            let bot_row = Rect { x: btn_area.x, y: btn_area.y + 2, width: btn_width, height: 1 };
+            frame.render_widget(
+                Paragraph::new(Span::styled(
+                    "▀".repeat(btn_width as usize),
+                    Style::default().fg(btn_bg).bg(outer_bg),
+                )),
+                bot_row,
+            );
+
+            app.detail_transition_btn_area = Some(btn_area);
+            transition_btn_area = Some(btn_area);
+        }
     }
 
     // Separator
@@ -212,13 +247,14 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             let dropdown_width = app
                 .detail_transitions
                 .iter()
-                .map(|tr| tr.name.chars().count() as u16 + 4)
+                .map(|tr| tr.name.chars().count() as u16 + 7) // " ▸ " + name + border*2
                 .max()
                 .unwrap_or(20)
                 .max(btn_area.width);
+            let dropdown_x = (btn_area.x + btn_area.width).saturating_sub(dropdown_width);
             let dropdown_area = Rect {
-                x: btn_area.x + btn_area.width.saturating_sub(dropdown_width),
-                y: btn_area.y + 1,
+                x: dropdown_x,
+                y: btn_area.y + btn_area.height,
                 width: dropdown_width,
                 height: dropdown_height,
             };
