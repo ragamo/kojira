@@ -744,6 +744,21 @@ impl App {
             AppMessage::DescriptionUpdated(key, Ok(())) => {
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_editing = false;
+                    // Sync summary to list and board tabs
+                    if let Some(summary) = self.detail_issue.as_ref().map(|i| i.fields.summary.clone()) {
+                        for tab in &mut self.list_tabs {
+                            if let Some(issue) = tab.issues.iter_mut().find(|i| i.key == key) {
+                                issue.fields.summary = summary.clone();
+                            }
+                        }
+                        for tab in &mut self.board_tabs {
+                            for col in &mut tab.columns {
+                                if let Some(issue) = col.issues.iter_mut().find(|i| i.key == key) {
+                                    issue.fields.summary = summary.clone();
+                                }
+                            }
+                        }
+                    }
                 }
             }
             AppMessage::DescriptionUpdated(_, Err(_)) => {
