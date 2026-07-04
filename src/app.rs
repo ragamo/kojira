@@ -1064,6 +1064,16 @@ impl App {
             }
 
             if self.detail_open {
+                if self.detail_transition_open {
+                    // Click on button toggles off
+                    if hit(pos, self.detail_transition_btn_area) {
+                        self.detail_transition_open = false;
+                        return;
+                    }
+                    // Click anywhere else closes dropdown (click outside)
+                    self.detail_transition_open = false;
+                    return;
+                }
                 if hit(pos, self.detail_close_area) {
                     self.detail_open = false;
                     self.detail_issue = None;
@@ -1073,7 +1083,7 @@ impl App {
                 }
                 if hit(pos, self.detail_transition_btn_area) {
                     if !self.detail_transitions.is_empty() {
-                        self.detail_transition_open = !self.detail_transition_open;
+                        self.detail_transition_open = true;
                         self.detail_transition_selected = 0;
                     }
                     return;
