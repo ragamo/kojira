@@ -198,9 +198,35 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 height: card_height,
             };
 
+            let priority_indicator = issue.fields.priority.as_ref().map(|p| {
+                let name = p.name.to_lowercase();
+                if name.contains("highest") || name.contains("critical") || name.contains("blocker") {
+                    Some(("!!", t.error))
+                } else if name.contains("high") {
+                    Some(("! ", t.warning))
+                } else {
+                    None
+                }
+            }).flatten();
+
             let mut lines: Vec<Line> = summary_lines
                 .iter()
-                .map(|s| Line::from(Span::styled(s.as_str(), Style::default().fg(t.text))))
+                .enumerate()
+                .map(|(idx, s)| {
+                    if idx == 0 {
+                        if let Some((indicator, color)) = priority_indicator {
+                            Line::from(vec![
+                                Span::styled(indicator, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                                Span::styled(" ", Style::default()),
+                                Span::styled(s.as_str(), Style::default().fg(t.text)),
+                            ])
+                        } else {
+                            Line::from(Span::styled(s.as_str(), Style::default().fg(t.text)))
+                        }
+                    } else {
+                        Line::from(Span::styled(s.as_str(), Style::default().fg(t.text)))
+                    }
+                })
                 .collect();
 
             // Row 2: Epic with background color (only if present)
