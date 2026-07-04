@@ -1327,7 +1327,7 @@ impl App {
         if self.create_modal.active_field == CreateField::Description {
             match key.code {
                 KeyCode::Tab => {
-                    self.create_modal.active_field = CreateField::Assignee;
+                    self.create_modal.active_field = CreateField::IssueType;
                 }
                 KeyCode::BackTab => {
                     self.create_modal.active_field = CreateField::Title;
@@ -1343,11 +1343,11 @@ impl App {
             KeyCode::Tab => {
                 self.create_modal.active_field = match self.create_modal.active_field {
                     CreateField::Title => CreateField::Description,
-                    CreateField::Description => CreateField::Assignee,
-                    CreateField::Assignee => CreateField::Epic,
-                    CreateField::Epic => CreateField::Priority,
-                    CreateField::Priority => CreateField::IssueType,
-                    CreateField::IssueType => CreateField::Save,
+                    CreateField::Description => CreateField::IssueType,
+                    CreateField::IssueType => CreateField::Priority,
+                    CreateField::Priority => CreateField::Epic,
+                    CreateField::Epic => CreateField::Assignee,
+                    CreateField::Assignee => CreateField::Save,
                     CreateField::Save => CreateField::Cancel,
                     CreateField::Cancel => CreateField::Title,
                 };
@@ -1356,11 +1356,11 @@ impl App {
                 self.create_modal.active_field = match self.create_modal.active_field {
                     CreateField::Title => CreateField::Cancel,
                     CreateField::Description => CreateField::Title,
-                    CreateField::Assignee => CreateField::Description,
-                    CreateField::Epic => CreateField::Assignee,
-                    CreateField::Priority => CreateField::Epic,
-                    CreateField::IssueType => CreateField::Priority,
-                    CreateField::Save => CreateField::IssueType,
+                    CreateField::IssueType => CreateField::Description,
+                    CreateField::Priority => CreateField::IssueType,
+                    CreateField::Epic => CreateField::Priority,
+                    CreateField::Assignee => CreateField::Epic,
+                    CreateField::Save => CreateField::Assignee,
                     CreateField::Cancel => CreateField::Save,
                 };
             }
@@ -2190,6 +2190,13 @@ impl App {
                                     CreateField::IssueType => self.create_modal.issue_type_idx,
                                     _ => 0,
                                 };
+                            }
+                            CreateField::Save => {
+                                self.submit_create_issue();
+                            }
+                            CreateField::Cancel => {
+                                self.create_modal_open = false;
+                                self.focus = FocusLayer::Main;
                             }
                             _ => {
                                 self.create_modal.active_field = clicked_field;

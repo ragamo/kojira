@@ -160,9 +160,31 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(assignee_widget, assignee_area);
     app.create_field_areas.push((assignee_area, CreateField::Assignee));
 
+    // Buttons: Save | Cancel
+    let btn_y = assignee_y + 4;
+    let btn_w = (right_inner_w / 2).saturating_sub(1);
+    let save_active = app.create_modal.active_field == CreateField::Save;
+    let cancel_active = app.create_modal.active_field == CreateField::Cancel;
+    let save_style = if save_active {
+        Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(t.text).bg(t.border)
+    };
+    let cancel_style = if cancel_active {
+        Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(t.text).bg(t.border)
+    };
+    let save_area = Rect { x: right_inner_x, y: btn_y, width: btn_w, height: 1 };
+    let cancel_area = Rect { x: right_inner_x + btn_w + 1, y: btn_y, width: btn_w, height: 1 };
+    frame.render_widget(Paragraph::new(Span::styled(" save ", save_style)).alignment(Alignment::Center), save_area);
+    frame.render_widget(Paragraph::new(Span::styled(" cancel ", cancel_style)).alignment(Alignment::Center), cancel_area);
+    app.create_field_areas.push((save_area, CreateField::Save));
+    app.create_field_areas.push((cancel_area, CreateField::Cancel));
+
     // Error message
     if let Some(ref err) = app.create_modal.error {
-        let err_y = assignee_y + 4;
+        let err_y = btn_y + 2;
         let err_area = Rect { x: right_inner_x, y: err_y, width: right_inner_w, height: 1 };
         frame.render_widget(
             Paragraph::new(err.as_str()).style(Style::default().fg(t.error)),
