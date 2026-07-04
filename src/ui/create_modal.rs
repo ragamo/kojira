@@ -57,8 +57,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(title_border))
-                .title(" Create ")
-                .title_style(Style::default().fg(t.text).add_modifier(Modifier::BOLD)),
+                .title(" Title ")
+                .title_style(Style::default().fg(t.text_dim)),
         )
         .style(Style::default().fg(t.text));
     frame.render_widget(title_widget, title_area);
