@@ -439,27 +439,20 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     render_metadata(frame, app, t, &issue, meta_area);
 
     // Status bar
-    let statusbar = if app.detail_tab == 0 {
-        Line::from(vec![
-            Span::styled(" e", Style::default().fg(t.accent)),
-            Span::styled(" edit  ", Style::default().fg(t.text_dim)),
-            Span::styled("←→", Style::default().fg(t.accent)),
-            Span::styled(" tabs  ", Style::default().fg(t.text_dim)),
-            Span::styled("t", Style::default().fg(t.accent)),
-            Span::styled(" transition  ", Style::default().fg(t.text_dim)),
-            Span::styled("Esc", Style::default().fg(t.accent)),
-            Span::styled(" close", Style::default().fg(t.text_dim)),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled("←→", Style::default().fg(t.accent)),
-            Span::styled(" tabs  ", Style::default().fg(t.text_dim)),
-            Span::styled("↑↓", Style::default().fg(t.accent)),
-            Span::styled(" scroll  ", Style::default().fg(t.text_dim)),
-            Span::styled("Esc", Style::default().fg(t.accent)),
-            Span::styled(" close", Style::default().fg(t.text_dim)),
-        ])
-    };
+    let mut statusbar_spans: Vec<Span> = Vec::new();
+    if app.detail_tab == 0 {
+        statusbar_spans.push(Span::styled(" e", Style::default().fg(t.accent)));
+        statusbar_spans.push(Span::styled(" edit  ", Style::default().fg(t.text_dim)));
+    }
+    statusbar_spans.push(Span::styled("t", Style::default().fg(t.accent)));
+    statusbar_spans.push(Span::styled(" transition  ", Style::default().fg(t.text_dim)));
+    statusbar_spans.push(Span::styled("←→", Style::default().fg(t.accent)));
+    statusbar_spans.push(Span::styled(" tabs  ", Style::default().fg(t.text_dim)));
+    statusbar_spans.push(Span::styled("↑↓", Style::default().fg(t.accent)));
+    statusbar_spans.push(Span::styled(" scroll  ", Style::default().fg(t.text_dim)));
+    statusbar_spans.push(Span::styled("Esc", Style::default().fg(t.accent)));
+    statusbar_spans.push(Span::styled(" close", Style::default().fg(t.text_dim)));
+    let statusbar = Line::from(statusbar_spans);
     frame.render_widget(Paragraph::new(statusbar), statusbar_area);
 
     // Transition dropdown (rendered last to overlay everything)
