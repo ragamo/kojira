@@ -964,30 +964,19 @@ impl App {
             .map(|(_, b)| b.clone())
             .collect();
 
-        // Register project if not known yet, then switch to it
+        // Register project if not known yet (for column_order / load_column_order)
         if !self.projects.iter().any(|p| p.key == project_key) {
-            self.projects.push(FavoriteProject { key: project_key.clone(), name: project_name });
+            self.projects.push(FavoriteProject { key: project_key.clone(), name: project_name.clone() });
         }
-        self.selected_project = self.projects.iter().position(|p| p.key == project_key).unwrap_or(0);
-        self.on_project_changed();
 
-        // If list tab was not selected and boards were selected, don't force list active
-        // on_project_changed already set active_tab to the new list tab
-        // If only boards selected, switch to the first board after adding
-        let only_boards = any_selected
-            && !self.find_panel_selected.get(0).copied().unwrap_or(false)
-            && !boards_to_add.is_empty();
+        let want_list = !any_selected || self.find_panel_selected.get(0).copied().unwrap_or(false);
 
-        // Add board tabs
+        // Always just add tabs — never reset existing ones
+        if want_list {
+            self.add_list_tab(project_key.clone(), project_name);
+        }
         for board in boards_to_add {
             self.add_board_tab(board);
-        }
-
-        if !only_boards {
-            // Ensure we're on the list tab
-            if let Some(first_list) = self.list_tabs.first() {
-                self.active_tab = Tab::List(first_list.id);
-            }
         }
 
         // Close modals
@@ -1136,7 +1125,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
     fn add_list_tab(&mut self, project_key: String, project_name: String) {
         let id = self.next_list_id;
         self.next_list_id += 1;
@@ -1677,35 +1665,6 @@ impl App {
             let result = provider.do_transition(&key, &tid).await;
             let _ = tx.send(AppMessage::TransitionDone(key, result));
         });
-    }
-
-    fn on_project_changed(&mut self) {
-        let project = match self.projects.get(self.selected_project) {
-            Some(p) => p.clone(),
-            None => return,
-        };
-
-        self.column_order.clear();
-        self.board_tabs.clear();
-
-        // Replace list tabs with a single fresh one for the new project
-        let id = self.next_list_id;
-        self.next_list_id += 1;
-        self.list_tabs = vec![ListTab {
-            id,
-            project_key: project.key.clone(),
-            project_name: project.name.clone(),
-            issues: Vec::new(),
-            loading: true,
-            error: None,
-            nav: TableNav::default(),
-            filter: None,
-            statuses: Vec::new(),
-        }];
-        self.active_tab = Tab::List(id);
-        self.save_open_tabs();
-        self.load_column_order();
-        self.load_backlog_for_tab(id, project.key);
     }
 
     fn active_list_tab(&self) -> Option<&ListTab> {
