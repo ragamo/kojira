@@ -7,7 +7,7 @@ use crate::config;
 use crate::config::types::{AppConfig, FavoriteProject, OpenBoard};
 use crate::event::{AppEvent, AppMessage};
 use crate::provider::jira::JiraProvider;
-use crate::provider::types::{JiraBoard, JiraIssue};
+use crate::provider::types::{JiraBoard, JiraIssue, JiraTransition};
 use crate::table_nav::TableNav;
 use crate::theme::{self, Theme};
 use crate::ui::click_regions::ClickRegions;
@@ -102,6 +102,10 @@ pub struct App {
     pub detail_resize_area: Option<Rect>,
     pub detail_url_area: Option<Rect>,
     pub detail_dragging: bool,
+    pub detail_transitions: Vec<JiraTransition>,
+    pub detail_transition_open: bool,
+    pub detail_transition_selected: usize,
+    pub detail_transition_btn_area: Option<Rect>,
 
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
@@ -227,6 +231,10 @@ impl App {
             detail_resize_area: None,
             detail_url_area: None,
             detail_dragging: false,
+            detail_transitions: Vec::new(),
+            detail_transition_open: false,
+            detail_transition_selected: 0,
+            detail_transition_btn_area: None,
 
             board_tabs,
             board_picker_open: false,
@@ -341,6 +349,28 @@ impl App {
                     });
                 }
             }
+            AppMessage::IssueDetailLoaded(key, Ok(desc)) => {
+                if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
+                    self.detail_description = Some(desc);
+                }
+            }
+            AppMessage::IssueDetailLoaded(_, Err(_)) => {}
+            AppMessage::TransitionsLoaded(key, Ok(transitions)) => {
+                if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
+                    self.detail_transitions = transitions;
+                }
+            }
+            AppMessage::TransitionsLoaded(_, Err(_)) => {}
+            AppMessage::TransitionDone(key, Ok(())) => {
+                if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
+                    self.detail_transition_open = false;
+                    // Reload to update status
+                    self.load_issue_detail(&key.clone());
+                    self.backlog_loading = true;
+                    self.load_backlog();
+                }
+            }
+            AppMessage::TransitionDone(_, Err(_)) => {}
             AppMessage::ColumnOrderLoaded(Err(_)) => {}
             AppMessage::BacklogLoaded(Err(e)) => {
                 self.backlog_loading = false;
@@ -463,11 +493,35 @@ impl App {
             KeyCode::Enter if self.active_tab == Tab::Backlog && !self.detail_open => {
                 self.open_detail_from_backlog();
             }
+            KeyCode::Esc if self.detail_transition_open => {
+                self.detail_transition_open = false;
+            }
             KeyCode::Esc if self.detail_open => {
                 self.detail_open = false;
                 self.detail_issue = None;
                 self.detail_description = None;
                 self.detail_scroll = 0;
+            }
+            KeyCode::Char('t') if self.detail_open && !self.detail_transitions.is_empty() => {
+                self.detail_transition_open = !self.detail_transition_open;
+                self.detail_transition_selected = 0;
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.detail_transition_open => {
+                if self.detail_transition_selected < self.detail_transitions.len().saturating_sub(1) {
+                    self.detail_transition_selected += 1;
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.detail_transition_open => {
+                if self.detail_transition_selected > 0 {
+                    self.detail_transition_selected -= 1;
+                }
+            }
+            KeyCode::Enter if self.detail_transition_open => {
+                if let Some(transition) = self.detail_transitions.get(self.detail_transition_selected).cloned() {
+                    if let Some(ref issue) = self.detail_issue.clone() {
+                        self.do_transition(&issue.key, &transition.id);
+                    }
+                }
             }
             KeyCode::Down | KeyCode::Char('j') if self.detail_open => {
                 self.detail_scroll = self.detail_scroll.saturating_add(1);
@@ -954,15 +1008,22 @@ impl App {
             }
 
             if self.detail_open {
-                if hit(pos, self.detail_resize_area) {
-                    self.detail_dragging = true;
-                    return;
-                }
                 if hit(pos, self.detail_close_area) {
                     self.detail_open = false;
                     self.detail_issue = None;
                     self.detail_description = None;
                     self.detail_scroll = 0;
+                    return;
+                }
+                if hit(pos, self.detail_transition_btn_area) {
+                    if !self.detail_transitions.is_empty() {
+                        self.detail_transition_open = !self.detail_transition_open;
+                        self.detail_transition_selected = 0;
+                    }
+                    return;
+                }
+                if hit(pos, self.detail_resize_area) {
+                    self.detail_dragging = true;
                     return;
                 }
                 if hit(pos, self.detail_url_area) {
@@ -1180,20 +1241,65 @@ impl App {
             })
             .collect();
         if let Some(issue) = self.backlog_nav.selected.and_then(|i| filtered.get(i)) {
-            self.detail_issue = Some((*issue).clone());
-            self.detail_description = None;
-            self.detail_open = true;
-            self.detail_height = 0;
-            self.detail_scroll = 0;
+            let issue = (*issue).clone();
+            self.open_detail_for_issue(&issue);
         }
     }
 
     pub fn open_detail_for_issue(&mut self, issue: &JiraIssue) {
+        let key = issue.key.clone();
         self.detail_issue = Some(issue.clone());
         self.detail_description = None;
         self.detail_open = true;
         self.detail_height = 0;
         self.detail_scroll = 0;
+        self.detail_transitions.clear();
+        self.detail_transition_open = false;
+        self.detail_transition_selected = 0;
+        self.load_issue_detail(&key);
+    }
+
+    fn load_issue_detail(&self, issue_key: &str) {
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let key = issue_key.to_string();
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let desc = provider.get_issue_description(&key).await;
+            let _ = tx.send(AppMessage::IssueDetailLoaded(key.clone(), desc));
+            let transitions = provider.get_transitions(&key).await;
+            let _ = tx.send(AppMessage::TransitionsLoaded(key, transitions));
+        });
+    }
+
+    fn do_transition(&self, issue_key: &str, transition_id: &str) {
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let key = issue_key.to_string();
+        let tid = transition_id.to_string();
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let result = provider.do_transition(&key, &tid).await;
+            let _ = tx.send(AppMessage::TransitionDone(key, result));
+        });
     }
 
     fn on_project_changed(&mut self) {

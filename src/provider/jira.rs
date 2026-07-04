@@ -3,7 +3,8 @@ use thiserror::Error;
 
 use super::types::{
     JiraBoard, JiraBoardConfig, JiraBoardIssuesResponse, JiraBoardListResponse, JiraIssue,
-    JiraProject, JiraProjectSearchResponse, JiraSearchResponse, JiraUser,
+    JiraIssueDetailResponse, JiraProject, JiraProjectSearchResponse, JiraSearchResponse,
+    JiraTransition, JiraTransitionsResponse, JiraUser,
 };
 
 #[derive(Debug, Error)]
@@ -156,6 +157,67 @@ impl JiraProvider {
         Ok(all_issues)
     }
 
+    pub async fn get_issue_description(&self, issue_key: &str) -> Result<String, JiraError> {
+        let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key);
+        let resp = self
+            .client
+            .get(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .query(&[("fields", "description")])
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(JiraError::Auth(format!("HTTP {}", resp.status())));
+        }
+
+        let data: JiraIssueDetailResponse = resp.json().await?;
+        let description = data
+            .fields
+            .description
+            .map(|d| adf_to_text(&d))
+            .unwrap_or_default();
+        Ok(description)
+    }
+
+    pub async fn get_transitions(&self, issue_key: &str) -> Result<Vec<JiraTransition>, JiraError> {
+        let url = format!("{}/rest/api/3/issue/{}/transitions", self.base_url, issue_key);
+        let resp = self
+            .client
+            .get(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(JiraError::Auth(format!("HTTP {}", resp.status())));
+        }
+
+        let data: JiraTransitionsResponse = resp.json().await?;
+        Ok(data.transitions)
+    }
+
+    pub async fn do_transition(&self, issue_key: &str, transition_id: &str) -> Result<(), JiraError> {
+        let url = format!("{}/rest/api/3/issue/{}/transitions", self.base_url, issue_key);
+        let body = serde_json::json!({
+            "transition": { "id": transition_id }
+        });
+        let resp = self
+            .client
+            .post(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(JiraError::Auth(format!("Transition failed: {}", &text[..text.len().min(200)])));
+        }
+
+        Ok(())
+    }
+
     pub async fn search_projects(&self, query: &str) -> Result<Vec<JiraProject>, JiraError> {
         let url = format!("{}/rest/api/3/project/search", self.base_url);
         let resp = self
@@ -172,5 +234,71 @@ impl JiraProvider {
 
         let data: JiraProjectSearchResponse = resp.json().await?;
         Ok(data.values)
+    }
+}
+
+fn adf_to_text(value: &serde_json::Value) -> String {
+    let mut result = String::new();
+    adf_walk(value, &mut result);
+    result
+}
+
+fn adf_walk(node: &serde_json::Value, out: &mut String) {
+    match node {
+        serde_json::Value::Object(obj) => {
+            let node_type = obj.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            match node_type {
+                "text" => {
+                    if let Some(text) = obj.get("text").and_then(|t| t.as_str()) {
+                        out.push_str(text);
+                    }
+                }
+                "hardBreak" => out.push('\n'),
+                "paragraph" | "heading" => {
+                    if let Some(content) = obj.get("content").and_then(|c| c.as_array()) {
+                        for child in content {
+                            adf_walk(child, out);
+                        }
+                    }
+                    out.push('\n');
+                }
+                "bulletList" | "orderedList" => {
+                    if let Some(content) = obj.get("content").and_then(|c| c.as_array()) {
+                        for child in content {
+                            adf_walk(child, out);
+                        }
+                    }
+                }
+                "listItem" => {
+                    out.push_str("  • ");
+                    if let Some(content) = obj.get("content").and_then(|c| c.as_array()) {
+                        for child in content {
+                            adf_walk(child, out);
+                        }
+                    }
+                }
+                "codeBlock" => {
+                    if let Some(content) = obj.get("content").and_then(|c| c.as_array()) {
+                        for child in content {
+                            adf_walk(child, out);
+                        }
+                    }
+                    out.push('\n');
+                }
+                _ => {
+                    if let Some(content) = obj.get("content").and_then(|c| c.as_array()) {
+                        for child in content {
+                            adf_walk(child, out);
+                        }
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                adf_walk(item, out);
+            }
+        }
+        _ => {}
     }
 }

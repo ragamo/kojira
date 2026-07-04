@@ -84,6 +84,35 @@ pub struct JiraParentFields {
     pub summary: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraTransitionsResponse {
+    pub transitions: Vec<JiraTransition>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraTransition {
+    pub id: String,
+    pub name: String,
+    #[allow(dead_code)]
+    pub to: JiraTransitionTo,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraTransitionTo {
+    #[allow(dead_code)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraIssueDetailResponse {
+    pub fields: JiraIssueDetailFields,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraIssueDetailFields {
+    pub description: Option<serde_json::Value>,
+}
+
 // Agile API types
 
 #[derive(Debug, Clone, Deserialize)]

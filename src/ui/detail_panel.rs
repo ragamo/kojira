@@ -161,6 +161,29 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     frame.render_widget(Paragraph::new(header_lines), chunks[0]);
 
+    // Transition button (right side of header, line 1)
+    let mut transition_btn_area: Option<Rect> = None;
+    if !app.detail_transitions.is_empty() {
+        let current_status = &issue.fields.status.name;
+        let btn_label = format!(" {} ⏷ ", current_status);
+        let btn_width = btn_label.chars().count() as u16;
+        let btn_area = Rect {
+            x: inner.x + inner.width.saturating_sub(btn_width),
+            y: chunks[0].y,
+            width: btn_width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                btn_label,
+                Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD),
+            )),
+            btn_area,
+        );
+        app.detail_transition_btn_area = Some(btn_area);
+        transition_btn_area = Some(btn_area);
+    }
+
     // Separator
     frame.render_widget(
         Paragraph::new(Span::styled(
@@ -181,4 +204,50 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .wrap(Wrap { trim: false })
         .scroll((app.detail_scroll, 0));
     frame.render_widget(desc_widget, chunks[2]);
+
+    // Transition dropdown (rendered last to overlay everything)
+    if app.detail_transition_open {
+        if let Some(btn_area) = transition_btn_area {
+            let dropdown_height = (app.detail_transitions.len() as u16 + 2).min(10);
+            let dropdown_width = app
+                .detail_transitions
+                .iter()
+                .map(|tr| tr.name.chars().count() as u16 + 4)
+                .max()
+                .unwrap_or(20)
+                .max(btn_area.width);
+            let dropdown_area = Rect {
+                x: btn_area.x + btn_area.width.saturating_sub(dropdown_width),
+                y: btn_area.y + 1,
+                width: dropdown_width,
+                height: dropdown_height,
+            };
+            frame.render_widget(ratatui::widgets::Clear, dropdown_area);
+
+            let items: Vec<ratatui::widgets::ListItem> = app
+                .detail_transitions
+                .iter()
+                .enumerate()
+                .map(|(i, tr)| {
+                    let is_selected = i == app.detail_transition_selected;
+                    let style = if is_selected {
+                        Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(t.text)
+                    };
+                    let prefix = if is_selected { " ▸ " } else { "   " };
+                    ratatui::widgets::ListItem::new(format!("{}{}", prefix, tr.name)).style(style)
+                })
+                .collect();
+
+            let list = ratatui::widgets::List::new(items).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(t.accent))
+                    .style(Style::default().bg(t.bg)),
+            );
+            frame.render_widget(list, dropdown_area);
+        }
+    }
 }

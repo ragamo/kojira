@@ -14,7 +14,7 @@ pub enum AppEvent {
 }
 
 use crate::provider::jira::JiraError;
-use crate::provider::types::{JiraBoard, JiraBoardConfig, JiraIssue, JiraProject, JiraUser};
+use crate::provider::types::{JiraBoard, JiraBoardConfig, JiraIssue, JiraProject, JiraTransition, JiraUser};
 
 pub enum AppMessage {
     TokenValidated(Result<JiraUser, JiraError>),
@@ -23,6 +23,9 @@ pub enum AppMessage {
     BoardsLoaded(Result<Vec<JiraBoard>, JiraError>),
     BoardDataLoaded(u64, Result<(JiraBoardConfig, Vec<JiraIssue>), JiraError>),
     ColumnOrderLoaded(Result<Vec<String>, JiraError>),
+    IssueDetailLoaded(String, Result<String, JiraError>),
+    TransitionsLoaded(String, Result<Vec<JiraTransition>, JiraError>),
+    TransitionDone(String, Result<(), JiraError>),
 }
 
 pub async fn event_loop(tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {
