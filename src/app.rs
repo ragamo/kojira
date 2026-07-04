@@ -1624,7 +1624,7 @@ impl App {
         self.card_drag_target = Some((col_idx, row));
     }
 
-    fn transition_card_to_column(&mut self, issue_key: &str, target_col: usize) {
+    fn transition_card_to_column(&mut self, issue_key: &str, target_col: usize, insert_row: usize) {
         let board_id = match self.active_tab {
             Tab::Board(id) => id,
             _ => return,
@@ -1670,7 +1670,8 @@ impl App {
             if let Some(mut iss) = issue {
                 iss.fields.status.name = target_col_name.clone();
                 if let Some(col) = tab.columns.get_mut(actual_target_idx) {
-                    col.issues.push(iss);
+                    let pos = insert_row.min(col.issues.len());
+                    col.issues.insert(pos, iss);
                 }
             }
         }
@@ -1856,9 +1857,9 @@ impl App {
                 }
             }
             if let Some(drag) = self.card_dragging.take() {
-                if let Some((target_col, _)) = self.card_drag_target.take() {
+                if let Some((target_col, insert_row)) = self.card_drag_target.take() {
                     if target_col != drag.source_col {
-                        self.transition_card_to_column(&drag.issue_key, target_col);
+                        self.transition_card_to_column(&drag.issue_key, target_col, insert_row);
                     }
                 } else {
                     // No drag movement → treat as click → open detail
