@@ -22,6 +22,7 @@ pub enum AppMessage {
     BacklogLoaded(Result<Vec<JiraIssue>, JiraError>),
     BoardsLoaded(Result<Vec<JiraBoard>, JiraError>),
     BoardDataLoaded(u64, Result<(JiraBoardConfig, Vec<JiraIssue>), JiraError>),
+    ColumnOrderLoaded(Result<Vec<String>, JiraError>),
 }
 
 pub async fn event_loop(tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {

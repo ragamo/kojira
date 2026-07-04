@@ -48,7 +48,18 @@ fn status_category_color(issue: &JiraIssue, theme: &Theme) -> Color {
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let t = app.theme;
 
+    // Filter bar
+    let chunks = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .split(area);
+
+    render_filters(frame, app, chunks[0]);
+    let content_area = chunks[1];
+
     if app.backlog_loading {
+        let area = content_area;
         let loading = Paragraph::new("Loading backlog...")
             .style(Style::default().fg(t.text_dim))
             .alignment(Alignment::Center)
@@ -79,16 +90,43 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(t.border)),
             );
+        frame.render_widget(empty, content_area);
+        return;
+    }
+
+    let area = content_area;
+
+    let filtered_issues: Vec<&JiraIssue> = app
+        .backlog_issues
+        .iter()
+        .filter(|issue| {
+            match &app.backlog_filter {
+                None => true,
+                Some(f) => issue.fields.status.name == *f,
+            }
+        })
+        .collect();
+
+    if filtered_issues.is_empty() {
+        let empty = Paragraph::new("No issues match this filter")
+            .style(Style::default().fg(t.text_dim))
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(t.border)),
+            );
         frame.render_widget(empty, area);
         return;
     }
 
+    let item_count = filtered_issues.len();
     let visible_rows = area.height.saturating_sub(3) as usize;
     app.backlog_nav.visible_rows = visible_rows;
-    app.backlog_nav.clamp(app.backlog_issues.len());
+    app.backlog_nav.clamp(item_count);
 
-    let visible_issues: Vec<&JiraIssue> = app
-        .backlog_issues
+    let visible_issues: Vec<&&JiraIssue> = filtered_issues
         .iter()
         .skip(app.backlog_nav.offset)
         .take(visible_rows)
@@ -150,19 +188,18 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
 
-    let scroll_indicator = if app.backlog_issues.len() > visible_rows {
+    let scroll_indicator = if item_count > visible_rows {
         format!(
             " {}-{}/{} ",
             app.backlog_nav.offset + 1,
-            (app.backlog_nav.offset + visible_issues.len()).min(app.backlog_issues.len()),
-            app.backlog_issues.len()
+            (app.backlog_nav.offset + visible_issues.len()).min(item_count),
+            item_count
         )
     } else {
         String::new()
     };
 
-    let key_width = app
-        .backlog_issues
+    let key_width = filtered_issues
         .iter()
         .map(|i| i.key.len() as u16)
         .max()
@@ -193,9 +230,9 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     frame.render_widget(table, area);
 
-    if app.backlog_issues.len() > visible_rows {
+    if item_count > visible_rows {
         let mut scrollbar_state =
-            ScrollbarState::new(app.backlog_issues.len().saturating_sub(visible_rows))
+            ScrollbarState::new(item_count.saturating_sub(visible_rows))
                 .position(app.backlog_nav.offset);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
@@ -210,4 +247,45 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         };
         frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
     }
+}
+
+fn render_filters(frame: &mut Frame, app: &mut App, area: Rect) {
+    let t = app.theme;
+    let mut filter_areas = Vec::new();
+    let mut x_offset = area.x;
+
+    // "all" tab first
+    let all_active = app.backlog_filter.is_none();
+    let all_style = if all_active {
+        Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(t.text_dim)
+    };
+    let all_label = " all ";
+    let all_width = all_label.len() as u16;
+    filter_areas.push(Rect { x: x_offset, y: area.y, width: all_width, height: 1 });
+    x_offset += all_width + 1;
+
+    let mut spans: Vec<Span> = vec![
+        Span::styled(all_label, all_style),
+        Span::raw(" "),
+    ];
+
+    for status in &app.backlog_statuses.clone() {
+        let is_active = app.backlog_filter.as_deref() == Some(status.as_str());
+        let style = if is_active {
+            Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(t.text_dim)
+        };
+        let label = format!(" {} ", status.to_lowercase());
+        let width = label.len() as u16;
+        filter_areas.push(Rect { x: x_offset, y: area.y, width, height: 1 });
+        x_offset += width + 1;
+        spans.push(Span::styled(label, style));
+        spans.push(Span::raw(" "));
+    }
+
+    app.click_regions.backlog.filter_areas = filter_areas;
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }

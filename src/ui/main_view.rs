@@ -146,7 +146,7 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut tab_areas: Vec<(Rect, usize)> = Vec::new();
 
     // Tab 0: Backlog
-    let backlog_label = " backlog ";
+    let backlog_label = " list ";
     let backlog_w = backlog_label.len() as u16;
     let backlog_style = if app.active_tab == Tab::Backlog {
         Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)

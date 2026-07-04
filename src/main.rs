@@ -30,6 +30,7 @@ async fn main() -> Result<()> {
     let mut app = App::new(cfg, msg_tx);
 
     if app.logged_in && !app.projects.is_empty() {
+        app.load_column_order();
         app.backlog_loading = true;
         app.load_backlog();
         let board_ids: Vec<u64> = app.board_tabs.iter().map(|b| b.board_id).collect();

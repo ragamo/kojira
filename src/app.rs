@@ -88,6 +88,9 @@ pub struct App {
     pub backlog_loading: bool,
     pub backlog_error: Option<String>,
     pub backlog_nav: TableNav,
+    pub backlog_filter: Option<String>,
+    pub backlog_statuses: Vec<String>,
+    pub column_order: Vec<String>,
 
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
@@ -200,6 +203,9 @@ impl App {
             backlog_loading: false,
             backlog_error: None,
             backlog_nav: TableNav::default(),
+            backlog_filter: None,
+            backlog_statuses: Vec::new(),
+            column_order: Vec::new(),
 
             board_tabs,
             board_picker_open: false,
@@ -275,10 +281,46 @@ impl App {
                 self.auth_error = Some(e.to_string());
             }
             AppMessage::BacklogLoaded(Ok(issues)) => {
+                let mut statuses: Vec<String> = Vec::new();
+                for issue in &issues {
+                    let name = &issue.fields.status.name;
+                    if !statuses.contains(name) {
+                        statuses.push(name.clone());
+                    }
+                }
+
+                if !self.column_order.is_empty() {
+                    statuses.sort_by_key(|s| {
+                        self.column_order
+                            .iter()
+                            .position(|c| c.eq_ignore_ascii_case(s))
+                            .unwrap_or(usize::MAX)
+                    });
+                }
+
+                self.backlog_statuses = statuses;
                 self.backlog_issues = issues;
                 self.backlog_loading = false;
-                self.backlog_nav.clamp(self.backlog_issues.len());
+                self.backlog_nav.reset();
             }
+            AppMessage::ColumnOrderLoaded(Ok(columns)) => {
+                let project_key = self
+                    .projects
+                    .get(self.selected_project)
+                    .map(|p| p.key.as_str())
+                    .unwrap_or("");
+                config::save_column_order_cache(project_key, &columns);
+                self.column_order = columns;
+                if !self.backlog_statuses.is_empty() && !self.column_order.is_empty() {
+                    self.backlog_statuses.sort_by_key(|s| {
+                        self.column_order
+                            .iter()
+                            .position(|c| c.eq_ignore_ascii_case(s))
+                            .unwrap_or(usize::MAX)
+                    });
+                }
+            }
+            AppMessage::ColumnOrderLoaded(Err(_)) => {}
             AppMessage::BacklogLoaded(Err(e)) => {
                 self.backlog_loading = false;
                 self.backlog_error = Some(e.to_string());
@@ -398,10 +440,12 @@ impl App {
             KeyCode::Char(',') => self.open_settings(),
             KeyCode::Char('x') => self.close_active_board_tab(),
             KeyCode::Down | KeyCode::Char('j') if self.active_tab == Tab::Backlog => {
-                self.backlog_nav.move_down(self.backlog_issues.len());
+                let count = self.filtered_backlog_count();
+                self.backlog_nav.move_down(count);
             }
             KeyCode::Up | KeyCode::Char('k') if self.active_tab == Tab::Backlog => {
-                self.backlog_nav.move_up(self.backlog_issues.len());
+                let count = self.filtered_backlog_count();
+                self.backlog_nav.move_up(count);
             }
             _ => {}
         }
@@ -422,9 +466,7 @@ impl App {
             KeyCode::Enter => {
                 self.project_selector_open = false;
                 self.focus = FocusLayer::Main;
-                self.backlog_loading = true;
-                self.backlog_nav.reset();
-                self.load_backlog();
+                self.on_project_changed();
             }
             KeyCode::Esc => {
                 self.project_selector_open = false;
@@ -529,9 +571,7 @@ impl App {
                         .unwrap_or(0);
                     self.find_modal_open = false;
                     self.focus = FocusLayer::Main;
-                    self.backlog_loading = true;
-                    self.backlog_nav.reset();
-                    self.load_backlog();
+                    self.on_project_changed();
                 }
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -585,6 +625,54 @@ impl App {
             let provider = JiraProvider::new(client, base_url, email, token);
             let result = provider.search_projects(&query).await;
             let _ = tx.send(AppMessage::SearchResults(result));
+        });
+    }
+
+    pub fn load_column_order(&mut self) {
+        if !self.column_order.is_empty() {
+            return;
+        }
+        let project = match self.projects.get(self.selected_project) {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        // Try disk cache first
+        if let Some(cached) = config::load_column_order_cache(&project.key) {
+            self.column_order = cached;
+            return;
+        }
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let boards = match provider.get_boards(&project.key).await {
+                Ok(b) => b,
+                Err(e) => {
+                    let _ = tx.send(AppMessage::ColumnOrderLoaded(Err(e)));
+                    return;
+                }
+            };
+            if let Some(board) = boards.first() {
+                match provider.get_board_config(board.id).await {
+                    Ok(cfg) => {
+                        let columns: Vec<String> =
+                            cfg.column_config.columns.iter().map(|c| c.name.clone()).collect();
+                        let _ = tx.send(AppMessage::ColumnOrderLoaded(Ok(columns)));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppMessage::ColumnOrderLoaded(Err(e)));
+                    }
+                }
+            }
         });
     }
 
@@ -760,7 +848,8 @@ impl App {
 
         match mouse.kind {
             MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
-                self.backlog_nav.scroll_down(self.backlog_issues.len());
+                let count = self.filtered_backlog_count();
+                self.backlog_nav.scroll_down(count);
                 return;
             }
             MouseEventKind::ScrollUp if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
@@ -836,6 +925,21 @@ impl App {
             } else if hit(pos, self.click_regions.header.logout_link) {
                 self.logout();
             }
+
+            // Backlog filter clicks
+            if self.active_tab == Tab::Backlog {
+                for (i, area) in self.click_regions.backlog.filter_areas.iter().enumerate() {
+                    if hit(pos, Some(*area)) {
+                        if i == 0 {
+                            self.backlog_filter = None;
+                        } else if let Some(status) = self.backlog_statuses.get(i - 1) {
+                            self.backlog_filter = Some(status.clone());
+                        }
+                        self.backlog_nav.reset();
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -845,9 +949,7 @@ impl App {
                 self.selected_project = i;
                 self.project_selector_open = false;
                 self.focus = FocusLayer::Main;
-                self.backlog_loading = true;
-                self.backlog_nav.reset();
-                self.load_backlog();
+                self.on_project_changed();
                 return;
             }
         }
@@ -883,9 +985,7 @@ impl App {
                         .unwrap_or(0);
                     self.find_modal_open = false;
                     self.focus = FocusLayer::Main;
-                    self.backlog_loading = true;
-                    self.backlog_nav.reset();
-                    self.load_backlog();
+                    self.on_project_changed();
                 }
                 return;
             }
@@ -950,6 +1050,22 @@ impl App {
             self.header_bg_soft = self.header_bg_confirmed;
             self.settings_open = false;
             self.focus = FocusLayer::Main;
+        }
+    }
+
+    fn on_project_changed(&mut self) {
+        self.column_order.clear();
+        self.backlog_filter = None;
+        self.backlog_loading = true;
+        self.backlog_nav.reset();
+        self.load_column_order();
+        self.load_backlog();
+    }
+
+    fn filtered_backlog_count(&self) -> usize {
+        match &self.backlog_filter {
+            None => self.backlog_issues.len(),
+            Some(f) => self.backlog_issues.iter().filter(|i| i.fields.status.name == *f).count(),
         }
     }
 
