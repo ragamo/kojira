@@ -57,7 +57,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(title_border))
-                .title(" Title ")
+                .title(" title ")
                 .title_style(Style::default().fg(t.text_dim)),
         )
         .style(Style::default().fg(t.text));
@@ -69,7 +69,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let desc_h = left.height.saturating_sub(5);
     let desc_area = Rect { x: left.x + 1, y: desc_y, width: left.width.saturating_sub(2), height: desc_h };
     let focused = app.create_modal.active_field == CreateField::Description;
-    render_editor_with_label(frame, &mut app.create_modal.description_editor, desc_area, t, focused, "Description");
+    render_editor_with_label(frame, &mut app.create_modal.description_editor, desc_area, t, focused, "description");
     app.create_field_areas.push((desc_area, CreateField::Description));
 
     // === RIGHT COLUMN: Assignee, Epic, Priority ===
@@ -91,7 +91,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(assignee_border))
-                .title(" Assignee ")
+                .title(" assignee ")
                 .title_style(Style::default().fg(t.text_dim)),
         );
     frame.render_widget(assignee_widget, assignee_area);
@@ -113,7 +113,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(epic_border))
-                .title(" Epic ")
+                .title(" epic ")
                 .title_style(Style::default().fg(t.text_dim)),
         );
     frame.render_widget(epic_widget, epic_area);
@@ -131,7 +131,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(priority_border))
-            .title(" Priority ")
+            .title(" priority ")
             .title_style(Style::default().fg(t.text_dim)),
     );
     frame.render_widget(priority_widget, priority_area);
