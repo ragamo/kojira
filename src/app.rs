@@ -499,8 +499,7 @@ impl App {
             next_list_id += 1;
         }
 
-        let first_tab = tab_order.first().cloned().unwrap_or(Tab::List(0));
-        let first_list_id = if let Tab::List(id) = first_tab { id } else { 0 };
+        let first_tab = tab_order.first().cloned();
         let subdomain = config
             .jira
             .base_url
@@ -514,7 +513,7 @@ impl App {
             running: true,
             theme,
             header_bg_soft,
-            active_tab: Tab::List(first_list_id),
+            active_tab: first_tab.unwrap_or(Tab::List(0)),
             projects,
             selected_project: 0,
             click_regions: ClickRegions::default(),
