@@ -203,8 +203,10 @@ fn render_footer(frame: &mut Frame, theme: &Theme, area: Rect) {
         Span::styled(" quit ", Style::default().fg(theme.text_dim)),
         Span::styled("Tab", Style::default().fg(theme.accent)),
         Span::styled(" switch tab ", Style::default().fg(theme.text_dim)),
-        Span::styled("f", Style::default().fg(theme.accent)),
-        Span::styled(" find ", Style::default().fg(theme.text_dim)),
+        Span::styled("x", Style::default().fg(theme.accent)),
+        Span::styled(" close tab ", Style::default().fg(theme.text_dim)),
+        Span::styled("n", Style::default().fg(theme.accent)),
+        Span::styled(" new tab ", Style::default().fg(theme.text_dim)),
         Span::styled(",", Style::default().fg(theme.accent)),
         Span::styled(" settings", Style::default().fg(theme.text_dim)),
     ];

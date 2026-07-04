@@ -706,7 +706,7 @@ impl App {
                     self.active_tab = tab.clone();
                 }
             }
-            KeyCode::Char('f') => self.open_find(),
+            KeyCode::Char('n') => self.open_find(),
             KeyCode::Char('r') => self.refresh_active_tab(),
             KeyCode::Char(',') => self.open_settings(),
             KeyCode::Char('x') => self.close_active_tab(),
@@ -1789,25 +1789,24 @@ impl App {
     fn close_active_tab(&mut self) {
         match self.active_tab {
             Tab::List(id) => {
-                // Don't close if it's the only list tab
-                if self.list_tabs.len() <= 1 {
-                    return;
-                }
                 let pos = self.list_tabs.iter().position(|t| t.id == id).unwrap_or(0);
                 self.list_tabs.retain(|t| t.id != id);
-                let new_tab = if pos > 0 {
-                    self.list_tabs.get(pos - 1).map(|t| Tab::List(t.id))
-                } else {
-                    self.list_tabs.first().map(|t| Tab::List(t.id))
-                };
-                self.active_tab = new_tab.unwrap_or_else(|| Tab::Board(0));
+                let new_tab = self.list_tabs.get(pos)
+                    .or_else(|| self.list_tabs.last())
+                    .map(|t| Tab::List(t.id))
+                    .or_else(|| self.board_tabs.first().map(|t| Tab::Board(t.board_id)));
+                self.active_tab = new_tab.unwrap_or(Tab::List(0));
                 self.save_open_tabs();
             }
             Tab::Board(id) => {
                 let board_id = id;
+                let pos = self.board_tabs.iter().position(|t| t.board_id == board_id).unwrap_or(0);
                 self.board_tabs.retain(|t| t.board_id != board_id);
-                let fallback = self.list_tabs.first().map(|t| Tab::List(t.id));
-                self.active_tab = fallback.unwrap_or(Tab::Board(0));
+                let new_tab = self.board_tabs.get(pos)
+                    .or_else(|| self.board_tabs.last())
+                    .map(|t| Tab::Board(t.board_id))
+                    .or_else(|| self.list_tabs.last().map(|t| Tab::List(t.id)));
+                self.active_tab = new_tab.unwrap_or(Tab::List(0));
                 self.save_open_tabs();
             }
         }
@@ -1833,25 +1832,8 @@ impl App {
     }
 
     fn save_open_tabs(&self) {
-        // Collect all project keys currently open in memory
-        let mut live_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for lt in &self.list_tabs { live_keys.insert(lt.project_key.clone()); }
-        for bt in &self.board_tabs {
-            // board_tabs don't carry a project_key, derive from list_tabs context
-            // (boards always belong to the same project set as list tabs)
-            let _ = bt; // handled below via full replace
-        }
-
         let mut config = self.config.clone();
-        // Drop all persisted tabs whose project key is currently managed in memory,
-        // then re-write them from the live state.
-        config.jira.open_tabs.retain(|t| {
-            let pk = match t {
-                OpenTab::List { project_key, .. } => project_key,
-                OpenTab::Board { project_key, .. } => project_key,
-            };
-            !live_keys.contains(pk)
-        });
+        config.jira.open_tabs.clear();
         for lt in &self.list_tabs {
             config.jira.open_tabs.push(OpenTab::List {
                 project_key: lt.project_key.clone(),
@@ -1859,7 +1841,6 @@ impl App {
                 id: lt.id,
             });
         }
-        // Board tabs need a project_key — use the active list tab's project as context
         let board_project_key = self.list_tabs.first()
             .map(|t| t.project_key.clone())
             .or_else(|| self.projects.get(self.selected_project).map(|p| p.key.clone()))
