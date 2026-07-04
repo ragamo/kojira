@@ -137,9 +137,32 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(priority_widget, priority_area);
     app.create_field_areas.push((priority_area, CreateField::Priority));
 
+    // Issue Type
+    let issue_type_y = priority_y + 4;
+    let issue_type_border = if app.create_modal.active_field == CreateField::IssueType { t.accent } else { t.border };
+    let issue_type_area = Rect { x: right_inner_x, y: issue_type_y, width: right_inner_w, height: 3 };
+    let issue_type_text = if app.create_modal.loading_issue_types {
+        "Loading...".to_string()
+    } else {
+        app.create_modal.issue_types
+            .get(app.create_modal.issue_type_idx)
+            .cloned()
+            .unwrap_or_else(|| "Task".to_string())
+    };
+    let issue_type_widget = Paragraph::new(Span::styled(&issue_type_text, Style::default().fg(t.text)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(issue_type_border))
+                .title(" type ")
+                .title_style(Style::default().fg(t.text_dim)),
+        );
+    frame.render_widget(issue_type_widget, issue_type_area);
+    app.create_field_areas.push((issue_type_area, CreateField::IssueType));
+
     // Error message
     if let Some(ref err) = app.create_modal.error {
-        let err_y = priority_y + 4;
+        let err_y = issue_type_y + 4;
         let err_area = Rect { x: right_inner_x, y: err_y, width: right_inner_w, height: 1 };
         frame.render_widget(
             Paragraph::new(err.as_str()).style(Style::default().fg(t.error)),
@@ -167,6 +190,12 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                 priority_area.y + priority_area.height,
                 priority_area.width,
                 PRIORITIES.iter().map(|s| s.to_string()).collect(),
+            ),
+            CreateField::IssueType => (
+                issue_type_area.x,
+                issue_type_area.y + issue_type_area.height,
+                issue_type_area.width,
+                app.create_modal.issue_types.clone(),
             ),
             _ => (0, 0, 0, Vec::new()),
         };

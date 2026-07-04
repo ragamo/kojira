@@ -31,6 +31,7 @@ pub enum AppMessage {
     DescriptionUpdated(String, Result<(), JiraError>),
     AssignableUsersLoaded(Result<Vec<JiraUser>, JiraError>),
     EpicsLoaded(Result<Vec<JiraIssue>, JiraError>),
+    IssueTypesLoaded(Result<Vec<String>, JiraError>),
     IssueCreated(Result<String, JiraError>),
     IssueFieldUpdated(String, Result<(), JiraError>),
 }

@@ -72,6 +72,7 @@ pub enum CreateField {
     Assignee,
     Epic,
     Priority,
+    IssueType,
     Save,
     Cancel,
 }
@@ -97,6 +98,9 @@ pub struct CreateModalState {
     pub epics: Vec<crate::provider::types::JiraIssue>,
     pub epic_idx: Option<usize>,
     pub priority_idx: usize,
+    pub issue_types: Vec<String>,
+    pub issue_type_idx: usize,
+    pub loading_issue_types: bool,
     pub active_field: CreateField,
     pub list_open: bool,
     pub list_scroll: usize,
@@ -120,6 +124,9 @@ impl Default for CreateModalState {
             epics: Vec::new(),
             epic_idx: None,
             priority_idx: 2, // Medium
+            issue_types: Vec::new(),
+            issue_type_idx: 0,
+            loading_issue_types: false,
             active_field: CreateField::Title,
             list_open: false,
             list_scroll: 0,
@@ -802,6 +809,13 @@ impl App {
             AppMessage::EpicsLoaded(Err(_)) => {
                 self.create_modal.loading_epics = false;
             }
+            AppMessage::IssueTypesLoaded(Ok(types)) => {
+                self.create_modal.issue_types = types;
+                self.create_modal.loading_issue_types = false;
+            }
+            AppMessage::IssueTypesLoaded(Err(_)) => {
+                self.create_modal.loading_issue_types = false;
+            }
             AppMessage::IssueCreated(Ok(_key)) => {
                 self.create_modal_open = false;
                 self.focus = FocusLayer::Main;
@@ -1093,7 +1107,8 @@ impl App {
         self.focus = FocusLayer::CreateModal;
         if let Some(project_key) = self.active_project_key() {
             self.load_assignable_users(project_key.clone());
-            self.load_epics(project_key);
+            self.load_epics(project_key.clone());
+            self.load_issue_types(project_key);
         }
     }
 
@@ -1162,6 +1177,26 @@ impl App {
         });
     }
 
+    fn load_issue_types(&mut self, project_key: String) {
+        self.create_modal.loading_issue_types = true;
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        tokio::spawn(async move {
+            let provider = crate::provider::jira::JiraProvider::new(client, base_url, email, token);
+            let result = provider.get_issue_types(&project_key).await;
+            let _ = tx.send(AppMessage::IssueTypesLoaded(result));
+        });
+    }
+
     fn submit_create_issue(&mut self) {
         if self.create_modal.saving {
             return;
@@ -1189,6 +1224,10 @@ impl App {
             .and_then(|i| self.create_modal.epics.get(i))
             .map(|e| e.key.clone());
         let priority = PRIORITIES[self.create_modal.priority_idx].to_string();
+        let issue_type = self.create_modal.issue_types
+            .get(self.create_modal.issue_type_idx)
+            .cloned()
+            .unwrap_or_else(|| "Task".to_string());
 
         let tx = self.message_tx.clone();
         let client = self.http_client.clone();
@@ -1211,6 +1250,7 @@ impl App {
                     assignee_id.as_deref(),
                     epic_key.as_deref(),
                     &priority,
+                    &issue_type,
                 )
                 .await;
             let _ = tx.send(AppMessage::IssueCreated(result));
@@ -1251,6 +1291,7 @@ impl App {
                         CreateField::Assignee => self.create_modal.assignees.len().saturating_sub(1),
                         CreateField::Epic => self.create_modal.epics.len().saturating_sub(1),
                         CreateField::Priority => PRIORITIES.len().saturating_sub(1),
+                        CreateField::IssueType => self.create_modal.issue_types.len().saturating_sub(1),
                         _ => 0,
                     };
                     if self.create_modal.list_scroll > max {
@@ -1267,6 +1308,9 @@ impl App {
                         }
                         CreateField::Priority => {
                             self.create_modal.priority_idx = self.create_modal.list_scroll;
+                        }
+                        CreateField::IssueType => {
+                            self.create_modal.issue_type_idx = self.create_modal.list_scroll;
                         }
                         _ => {}
                     }
@@ -1300,7 +1344,8 @@ impl App {
                     CreateField::Description => CreateField::Assignee,
                     CreateField::Assignee => CreateField::Epic,
                     CreateField::Epic => CreateField::Priority,
-                    CreateField::Priority => CreateField::Save,
+                    CreateField::Priority => CreateField::IssueType,
+                    CreateField::IssueType => CreateField::Save,
                     CreateField::Save => CreateField::Cancel,
                     CreateField::Cancel => CreateField::Title,
                 };
@@ -1312,17 +1357,19 @@ impl App {
                     CreateField::Assignee => CreateField::Description,
                     CreateField::Epic => CreateField::Assignee,
                     CreateField::Priority => CreateField::Epic,
-                    CreateField::Save => CreateField::Priority,
+                    CreateField::IssueType => CreateField::Priority,
+                    CreateField::Save => CreateField::IssueType,
                     CreateField::Cancel => CreateField::Save,
                 };
             }
             KeyCode::Enter => match self.create_modal.active_field {
-                CreateField::Assignee | CreateField::Epic | CreateField::Priority => {
+                CreateField::Assignee | CreateField::Epic | CreateField::Priority | CreateField::IssueType => {
                     self.create_modal.list_open = true;
                     self.create_modal.list_scroll = match self.create_modal.active_field {
                         CreateField::Assignee => self.create_modal.assignee_idx.unwrap_or(0),
                         CreateField::Epic => self.create_modal.epic_idx.unwrap_or(0),
                         CreateField::Priority => self.create_modal.priority_idx,
+                        CreateField::IssueType => self.create_modal.issue_type_idx,
                         _ => 0,
                     };
                 }
@@ -2113,6 +2160,9 @@ impl App {
                                 CreateField::Priority => {
                                     self.create_modal.priority_idx = i;
                                 }
+                                CreateField::IssueType => {
+                                    self.create_modal.issue_type_idx = i;
+                                }
                                 _ => {}
                             }
                             self.create_modal.list_open = false;
@@ -2128,13 +2178,14 @@ impl App {
                         let clicked_field = *field;
                         self.focus = FocusLayer::CreateModal;
                         match clicked_field {
-                            CreateField::Assignee | CreateField::Epic | CreateField::Priority => {
+                            CreateField::Assignee | CreateField::Epic | CreateField::Priority | CreateField::IssueType => {
                                 self.create_modal.active_field = clicked_field;
                                 self.create_modal.list_open = true;
                                 self.create_modal.list_scroll = match clicked_field {
                                     CreateField::Assignee => self.create_modal.assignee_idx.unwrap_or(0),
                                     CreateField::Epic => self.create_modal.epic_idx.unwrap_or(0),
                                     CreateField::Priority => self.create_modal.priority_idx,
+                                    CreateField::IssueType => self.create_modal.issue_type_idx,
                                     _ => 0,
                                 };
                             }

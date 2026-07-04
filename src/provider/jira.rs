@@ -347,6 +347,41 @@ impl JiraProvider {
         Ok(data.issues)
     }
 
+    pub async fn get_issue_types(&self, project_key: &str) -> Result<Vec<String>, JiraError> {
+        let url = format!("{}/rest/api/3/issue/createmeta/{}/issuetypes", self.base_url, project_key);
+        let resp = self
+            .client
+            .get(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(JiraError::Auth(format!("HTTP {}", resp.status())));
+        }
+
+        let data: serde_json::Value = resp.json().await?;
+        let types = data["issueTypes"]
+            .as_array()
+            .or_else(|| data["values"].as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                // Fallback: parse as array directly
+                if let Some(arr) = data.as_array() {
+                    arr.iter()
+                        .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            });
+        Ok(types)
+    }
+
     pub async fn create_issue(
         &self,
         project_key: &str,
@@ -355,6 +390,7 @@ impl JiraProvider {
         assignee_id: Option<&str>,
         epic_key: Option<&str>,
         priority: &str,
+        issue_type: &str,
     ) -> Result<String, JiraError> {
         let url = format!("{}/rest/api/3/issue", self.base_url);
 
@@ -374,7 +410,7 @@ impl JiraProvider {
             "project": { "key": project_key },
             "summary": summary,
             "description": desc_adf,
-            "issuetype": { "name": "Task" },
+            "issuetype": { "name": issue_type },
             "priority": { "name": priority }
         });
 
