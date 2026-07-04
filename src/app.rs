@@ -637,9 +637,7 @@ impl App {
                 self.auth_open = false;
                 self.auth_error = None;
                 self.focus = FocusLayer::Main;
-                if !self.projects.is_empty() {
-                    self.load_all_list_tabs();
-                }
+                self.restore_user_tabs();
             }
             AppMessage::TokenValidated(Err(e)) => {
                 self.is_validating = false;
@@ -1753,12 +1751,97 @@ impl App {
         self.focus = FocusLayer::Auth;
     }
 
+    fn restore_user_tabs(&mut self) {
+        let instance = self.config.jira.base_url.as_deref().unwrap_or("");
+        let email = self.config.auth.email.as_deref().unwrap_or("");
+
+        let tabs = if !instance.is_empty() && !email.is_empty() {
+            self.config.jira.user_tabs.iter()
+                .find(|ut| ut.instance_url == instance && ut.email == email)
+                .map(|ut| ut.tabs.clone())
+                .unwrap_or_default()
+        } else {
+            self.config.jira.open_tabs.clone()
+        };
+
+        if tabs.is_empty() {
+            return;
+        }
+
+        self.list_tabs.clear();
+        self.board_tabs.clear();
+        self.tab_order.clear();
+
+        for open_tab in &tabs {
+            match open_tab {
+                OpenTab::List { id, project_key, project_name } => {
+                    self.list_tabs.push(ListTab {
+                        id: *id,
+                        project_key: project_key.clone(),
+                        project_name: project_name.clone(),
+                        issues: Vec::new(),
+                        loading: true,
+                        error: None,
+                        nav: TableNav::default(),
+                        filter: None,
+                        statuses: Vec::new(),
+                    });
+                    self.tab_order.push(Tab::List(*id));
+                    if *id >= self.next_list_id {
+                        self.next_list_id = id + 1;
+                    }
+                }
+                OpenTab::Board { board_id, board_name, .. } => {
+                    self.board_tabs.push(BoardTab {
+                        board_id: *board_id,
+                        board_name: board_name.clone(),
+                        columns: Vec::new(),
+                        col_scroll: Vec::new(),
+                        loading: true,
+                        error: None,
+                    });
+                    self.tab_order.push(Tab::Board(*board_id));
+                }
+            }
+        }
+
+        if let Some(first) = self.tab_order.first().cloned() {
+            self.active_tab = first;
+        }
+
+        // Derive projects from tabs
+        self.projects.clear();
+        for tab in &tabs {
+            let (key, name) = match tab {
+                OpenTab::List { project_key, project_name, .. } => (project_key.clone(), project_name.clone()),
+                OpenTab::Board { project_key, board_name, .. } => (project_key.clone(), board_name.clone()),
+            };
+            if !self.projects.iter().any(|p| p.key == key) {
+                self.projects.push(FavoriteProject { key, name });
+            }
+        }
+
+        self.load_all_list_tabs();
+        for bt in &self.board_tabs {
+            self.load_board_data(bt.board_id);
+        }
+    }
+
     fn logout(&mut self) {
         self.logged_in = false;
         self.user_display_name = None;
         self.user_email = None;
         self.config.auth.token = None;
         self.config.auth.email = None;
+        self.config.auth.display_name = None;
+        self.list_tabs.clear();
+        self.board_tabs.clear();
+        self.tab_order.clear();
+        self.active_tab = Tab::List(0);
+        self.detail_open = false;
+        self.detail_issue = None;
+        self.create_modal_open = false;
+        self.focus = FocusLayer::Main;
         let _ = config::save_config(&self.config);
     }
 
