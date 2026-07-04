@@ -141,6 +141,29 @@ pub struct IssueMetadata {
     pub due_date: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraChangelogResponse {
+    #[serde(default)]
+    pub values: Vec<JiraChangelogEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraChangelogEntry {
+    pub author: JiraUser,
+    pub created: String,
+    #[serde(default)]
+    pub items: Vec<JiraChangeItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraChangeItem {
+    pub field: String,
+    #[serde(rename = "fromString")]
+    pub from_string: Option<String>,
+    #[serde(rename = "toString")]
+    pub to_string: Option<String>,
+}
+
 // Agile API types
 
 #[derive(Debug, Clone, Deserialize)]

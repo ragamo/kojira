@@ -186,7 +186,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Paragraph::new(header_lines), chunks[0]);
 
     // Tabs row
-    const DETAIL_TABS: &[&str] = &["overview", "comments", "history", "transitions"];
+    const DETAIL_TABS: &[&str] = &["overview", "comments", "transitions"];
     let tab_area = chunks[2];
     let mut tab_click_areas: Vec<Rect> = Vec::new();
     let mut x_offset = tab_area.x;
@@ -332,26 +332,34 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                 lines
             }
         }
-        2 => vec![Line::from(Span::styled(
-            "History not yet implemented",
-            Style::default().fg(t.text_dim),
-        ))],
-        3 => {
-            if app.detail_transitions.is_empty() {
+        2 => {
+            if app.detail_changelog.is_empty() {
                 vec![Line::from(Span::styled(
-                    "No transitions available",
+                    "No transition history",
                     Style::default().fg(t.text_dim),
                 ))]
             } else {
-                app.detail_transitions
-                    .iter()
-                    .map(|tr| {
-                        Line::from(vec![
-                            Span::styled("  → ", Style::default().fg(t.accent)),
-                            Span::styled(&tr.name, Style::default().fg(t.text)),
-                        ])
-                    })
-                    .collect()
+                let mut lines = Vec::new();
+                const STATUS_W: usize = 18;
+                for entry in app.detail_changelog.iter() {
+                    let date = if entry.created.len() >= 10 { &entry.created[..10] } else { &entry.created };
+                    let author_color = color_for_author(&entry.author.display_name);
+                    for item in entry.items.iter().filter(|i| i.field == "status") {
+                        let from = pad_or_truncate(item.from_string.as_deref().unwrap_or("?"), STATUS_W);
+                        let to = pad_or_truncate(item.to_string.as_deref().unwrap_or("?"), STATUS_W);
+                        lines.push(Line::from(vec![
+                            Span::styled(from, Style::default().fg(t.text_dim)),
+                            Span::styled(" → ", Style::default().fg(t.border)),
+                            Span::styled(to, Style::default().fg(t.info).add_modifier(Modifier::BOLD)),
+                            Span::styled(format!("  {} ", date), Style::default().fg(t.text_dim)),
+                            Span::styled(
+                                &entry.author.display_name,
+                                Style::default().fg(author_color),
+                            ),
+                        ]));
+                    }
+                }
+                lines
             }
         }
         _ => Vec::new(),
@@ -515,4 +523,14 @@ fn render_metadata(frame: &mut Frame, app: &App, t: &Theme, issue: &JiraIssue, a
 
     let meta_widget = Paragraph::new(lines).wrap(Wrap { trim: false });
     frame.render_widget(meta_widget, inner);
+}
+
+fn pad_or_truncate(s: &str, width: usize) -> String {
+    let len = s.chars().count();
+    if len >= width {
+        let truncated: String = s.chars().take(width.saturating_sub(1)).collect();
+        format!("{}…", truncated)
+    } else {
+        format!("{:<width$}", s, width = width)
+    }
 }

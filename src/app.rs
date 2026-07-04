@@ -7,7 +7,7 @@ use crate::config;
 use crate::config::types::{AppConfig, FavoriteProject, OpenBoard};
 use crate::event::{AppEvent, AppMessage};
 use crate::provider::jira::JiraProvider;
-use crate::provider::types::{IssueMetadata, JiraBoard, JiraComment, JiraIssue, JiraTransition};
+use crate::provider::types::{IssueMetadata, JiraBoard, JiraChangelogEntry, JiraComment, JiraIssue, JiraTransition};
 use crate::table_nav::TableNav;
 use crate::theme::{self, Theme};
 use crate::ui::click_regions::ClickRegions;
@@ -99,6 +99,7 @@ pub struct App {
     pub detail_issue: Option<JiraIssue>,
     pub detail_description: Option<String>,
     pub detail_comments: Vec<JiraComment>,
+    pub detail_changelog: Vec<JiraChangelogEntry>,
     pub detail_metadata: Option<IssueMetadata>,
     pub detail_height: u16,
     pub detail_scroll: u16,
@@ -233,6 +234,7 @@ impl App {
             detail_issue: None,
             detail_description: None,
             detail_comments: Vec::new(),
+            detail_changelog: Vec::new(),
             detail_metadata: None,
             detail_height: 0,
             detail_scroll: 0,
@@ -378,6 +380,12 @@ impl App {
                 }
             }
             AppMessage::CommentsLoaded(_, Err(_)) => {}
+            AppMessage::ChangelogLoaded(key, Ok(entries)) => {
+                if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
+                    self.detail_changelog = entries;
+                }
+            }
+            AppMessage::ChangelogLoaded(_, Err(_)) => {}
             AppMessage::TransitionDone(key, Ok(())) => {
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_transition_open = false;
@@ -524,11 +532,11 @@ impl App {
                 self.detail_transition_selected = 0;
             }
             KeyCode::Right | KeyCode::Char('l') if self.detail_open && !self.detail_transition_open => {
-                self.detail_tab = (self.detail_tab + 1) % 4;
+                self.detail_tab = (self.detail_tab + 1) % 3;
                 self.detail_scroll = 0;
             }
             KeyCode::Left | KeyCode::Char('h') if self.detail_open && !self.detail_transition_open => {
-                self.detail_tab = (self.detail_tab + 3) % 4;
+                self.detail_tab = (self.detail_tab + 2) % 3;
                 self.detail_scroll = 0;
             }
             KeyCode::Down | KeyCode::Char('j') if self.detail_transition_open => {
@@ -1302,6 +1310,7 @@ impl App {
         self.detail_issue = Some(issue.clone());
         self.detail_description = None;
         self.detail_comments.clear();
+        self.detail_changelog.clear();
         self.detail_metadata = None;
         self.detail_open = true;
         self.detail_tab = 0;
@@ -1333,7 +1342,9 @@ impl App {
             let transitions = provider.get_transitions(&key).await;
             let _ = tx.send(AppMessage::TransitionsLoaded(key.clone(), transitions));
             let comments = provider.get_comments(&key).await;
-            let _ = tx.send(AppMessage::CommentsLoaded(key, comments));
+            let _ = tx.send(AppMessage::CommentsLoaded(key.clone(), comments));
+            let changelog = provider.get_status_changelog(&key).await;
+            let _ = tx.send(AppMessage::ChangelogLoaded(key, changelog));
         });
     }
 

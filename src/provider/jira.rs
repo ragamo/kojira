@@ -3,9 +3,9 @@ use thiserror::Error;
 
 use super::types::{
     IssueMetadata, JiraBoard, JiraBoardConfig, JiraBoardIssuesResponse, JiraBoardListResponse,
-    JiraComment, JiraCommentsResponse, JiraIssue, JiraIssueDetailResponse, JiraProject,
-    JiraProjectSearchResponse, JiraSearchResponse, JiraTransition, JiraTransitionsResponse,
-    JiraUser,
+    JiraChangelogEntry, JiraChangelogResponse, JiraComment, JiraCommentsResponse, JiraIssue,
+    JiraIssueDetailResponse, JiraProject, JiraProjectSearchResponse, JiraSearchResponse,
+    JiraTransition, JiraTransitionsResponse, JiraUser,
 };
 
 #[derive(Debug, Error)]
@@ -204,6 +204,29 @@ impl JiraProvider {
 
         let data: JiraCommentsResponse = resp.json().await?;
         Ok(data.comments)
+    }
+
+    pub async fn get_status_changelog(&self, issue_key: &str) -> Result<Vec<JiraChangelogEntry>, JiraError> {
+        let url = format!("{}/rest/api/3/issue/{}/changelog", self.base_url, issue_key);
+        let resp = self
+            .client
+            .get(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(JiraError::Auth(format!("HTTP {}", resp.status())));
+        }
+
+        let data: JiraChangelogResponse = resp.json().await?;
+        // Filter only entries that changed the status field
+        let status_changes: Vec<JiraChangelogEntry> = data
+            .values
+            .into_iter()
+            .filter(|e| e.items.iter().any(|i| i.field == "status"))
+            .collect();
+        Ok(status_changes)
     }
 
     pub async fn get_transitions(&self, issue_key: &str) -> Result<Vec<JiraTransition>, JiraError> {
