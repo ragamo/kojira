@@ -98,6 +98,7 @@ pub struct App {
     pub detail_description: Option<String>,
     pub detail_height: u16,
     pub detail_scroll: u16,
+    pub detail_max_scroll: u16,
     pub detail_close_area: Option<Rect>,
     pub detail_resize_area: Option<Rect>,
     pub detail_url_area: Option<Rect>,
@@ -227,6 +228,7 @@ impl App {
             detail_description: None,
             detail_height: 0,
             detail_scroll: 0,
+            detail_max_scroll: 0,
             detail_close_area: None,
             detail_resize_area: None,
             detail_url_area: None,
@@ -524,7 +526,9 @@ impl App {
                 }
             }
             KeyCode::Down | KeyCode::Char('j') if self.detail_open => {
-                self.detail_scroll = self.detail_scroll.saturating_add(1);
+                if self.detail_scroll < self.detail_max_scroll {
+                    self.detail_scroll = self.detail_scroll.saturating_add(1).min(self.detail_max_scroll);
+                }
             }
             KeyCode::Up | KeyCode::Char('k') if self.detail_open => {
                 self.detail_scroll = self.detail_scroll.saturating_sub(1);
@@ -960,7 +964,9 @@ impl App {
                     .map(|r| pos.1 >= r.y)
                     .unwrap_or(false);
                 if in_detail {
-                    self.detail_scroll = self.detail_scroll.saturating_add(2);
+                    if self.detail_scroll < self.detail_max_scroll {
+                        self.detail_scroll = self.detail_scroll.saturating_add(2).min(self.detail_max_scroll);
+                    }
                 } else if self.active_tab == Tab::Backlog {
                     let count = self.filtered_backlog_count();
                     self.backlog_nav.scroll_down(count);

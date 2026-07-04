@@ -234,6 +234,22 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "No description".into()
     };
+
+    // Calculate max scroll: count wrapped lines vs visible height
+    let desc_area_height = chunks[2].height;
+    let desc_area_width = chunks[2].width as usize;
+    let total_lines: u16 = desc
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                1u16
+            } else {
+                ((line.chars().count() as u16).saturating_sub(1) / desc_area_width.max(1) as u16) + 1
+            }
+        })
+        .sum();
+    app.detail_max_scroll = total_lines.saturating_sub(desc_area_height);
+
     let desc_widget = Paragraph::new(desc)
         .style(Style::default().fg(t.text))
         .wrap(Wrap { trim: false })
