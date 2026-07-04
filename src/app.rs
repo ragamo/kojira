@@ -821,11 +821,18 @@ impl App {
             AppMessage::IssueCreated(Ok(_key)) => {
                 self.create_modal_open = false;
                 self.focus = FocusLayer::Main;
-                self.reload_active_tab();
+                let tx = self.message_tx.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let _ = tx.send(AppMessage::ReloadActiveTab);
+                });
             }
             AppMessage::IssueCreated(Err(e)) => {
                 self.create_modal.saving = false;
                 self.create_modal.error = Some(e.to_string());
+            }
+            AppMessage::ReloadActiveTab => {
+                self.reload_active_tab();
             }
             AppMessage::IssueFieldUpdated(key, Ok(())) => {
                 self.detail_field_saving = None;

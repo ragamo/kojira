@@ -33,6 +33,7 @@ pub enum AppMessage {
     EpicsLoaded(Result<Vec<JiraIssue>, JiraError>),
     IssueTypesLoaded(Result<Vec<String>, JiraError>),
     IssueCreated(Result<String, JiraError>),
+    ReloadActiveTab,
     IssueFieldUpdated(String, Result<(), JiraError>),
 }
 

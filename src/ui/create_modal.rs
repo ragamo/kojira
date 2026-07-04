@@ -263,22 +263,22 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Saving overlay
     if app.create_modal.saving {
-        let overlay = Rect {
-            x: inner.x,
-            y: inner.y,
-            width: inner.width,
-            height: inner.height,
-        };
-        frame.render_widget(Clear, overlay);
-        let saving_text = Paragraph::new(Line::from(vec![
-            Span::styled("◐ ", Style::default().fg(t.accent)),
-            Span::styled("Saving...", Style::default().fg(t.text)),
-        ]))
-        .alignment(Alignment::Center)
-        .style(Style::default().bg(t.bg));
+        let overlay = Rect { x: inner.x, y: inner.y, width: inner.width, height: inner.height };
+        frame.render_widget(
+            ratatui::widgets::Block::default().style(Style::default().bg(t.bg)),
+            overlay,
+        );
         let center_y = inner.y + inner.height / 2;
         let saving_area = Rect { x: inner.x, y: center_y, width: inner.width, height: 1 };
-        frame.render_widget(saving_text, saving_area);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("◐ ", Style::default().fg(t.accent)),
+                Span::styled("Saving...", Style::default().fg(t.text)),
+            ]))
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(t.bg)),
+            saving_area,
+        );
     }
 
     // Footer
