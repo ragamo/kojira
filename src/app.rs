@@ -315,6 +315,7 @@ pub struct App {
     pub detail_transition_open: bool,
     pub detail_transition_selected: usize,
     pub detail_transition_btn_area: Option<Rect>,
+    pub detail_transition_item_areas: Vec<Rect>,
     pub detail_field_edit: Option<DetailFieldEdit>,
     pub detail_field_saving: Option<DetailField>,
     pub detail_field_areas: Vec<(Rect, DetailField)>,
@@ -544,6 +545,7 @@ impl App {
             detail_transition_open: false,
             detail_transition_selected: 0,
             detail_transition_btn_area: None,
+            detail_transition_item_areas: Vec::new(),
             detail_field_edit: None,
             detail_field_saving: None,
             detail_field_areas: Vec::new(),
@@ -2040,6 +2042,19 @@ impl App {
                     if hit(pos, self.detail_transition_btn_area) {
                         self.detail_transition_open = false;
                         return;
+                    }
+                    for (i, area) in self.detail_transition_item_areas.iter().enumerate() {
+                        if hit(pos, Some(*area)) {
+                            if let Some(transition) = self.detail_transitions.get(i).cloned() {
+                                if let Some(ref mut issue) = self.detail_issue {
+                                    let key = issue.key.clone();
+                                    issue.fields.status.name = transition.to.name.clone();
+                                    self.detail_transition_open = false;
+                                    self.do_transition(&key, &transition.id);
+                                }
+                            }
+                            return;
+                        }
                     }
                     self.detail_transition_open = false;
                     return;

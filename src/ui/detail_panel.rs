@@ -412,13 +412,14 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Paragraph::new(statusbar), statusbar_area);
 
     // Transition dropdown (rendered last to overlay everything)
+    app.detail_transition_item_areas.clear();
     if app.detail_transition_open {
         if let Some(btn_area) = transition_btn_area {
             let dropdown_height = (app.detail_transitions.len() as u16 + 2).min(10);
             let dropdown_width = app
                 .detail_transitions
                 .iter()
-                .map(|tr| tr.name.chars().count() as u16 + 7) // " ▸ " + name + border*2
+                .map(|tr| tr.name.chars().count() as u16 + 7)
                 .max()
                 .unwrap_or(20)
                 .max(btn_area.width);
@@ -431,30 +432,29 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             };
             frame.render_widget(ratatui::widgets::Clear, dropdown_area);
 
-            let items: Vec<ratatui::widgets::ListItem> = app
-                .detail_transitions
-                .iter()
-                .enumerate()
-                .map(|(i, tr)| {
-                    let is_selected = i == app.detail_transition_selected;
-                    let style = if is_selected {
-                        Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(t.text)
-                    };
-                    let prefix = if is_selected { " ▸ " } else { "   " };
-                    ratatui::widgets::ListItem::new(format!("{}{}", prefix, tr.name)).style(style)
-                })
-                .collect();
+            let dd_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(t.accent))
+                .style(Style::default().bg(t.bg));
+            let dd_inner = dd_block.inner(dropdown_area);
+            frame.render_widget(dd_block, dropdown_area);
 
-            let list = ratatui::widgets::List::new(items).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(t.accent))
-                    .style(Style::default().bg(t.bg)),
-            );
-            frame.render_widget(list, dropdown_area);
+            for (i, tr) in app.detail_transitions.iter().enumerate() {
+                let is_selected = i == app.detail_transition_selected;
+                let style = if is_selected {
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(t.text)
+                };
+                let prefix = if is_selected { " ▸ " } else { "   " };
+                let item_area = Rect { x: dd_inner.x, y: dd_inner.y + i as u16, width: dd_inner.width, height: 1 };
+                frame.render_widget(
+                    Paragraph::new(Span::styled(format!("{}{}", prefix, tr.name), style)),
+                    item_area,
+                );
+                app.detail_transition_item_areas.push(item_area);
+            }
         }
     }
 }
