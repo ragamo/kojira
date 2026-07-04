@@ -59,6 +59,125 @@ pub struct FindProject {
     pub is_favorite: bool,
 }
 
+#[derive(Default)]
+pub struct SimpleEditor {
+    pub lines: Vec<String>,
+    pub cursor_row: usize,
+    pub cursor_col: usize,
+    pub scroll: u16,
+}
+
+impl SimpleEditor {
+    pub fn load(&mut self, text: &str) {
+        self.lines = text.lines().map(|l| l.to_string()).collect();
+        if self.lines.is_empty() {
+            self.lines.push(String::new());
+        }
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+        self.scroll = 0;
+    }
+
+    pub fn to_text(&self) -> String {
+        self.lines.join("\n")
+    }
+
+    pub fn input(&mut self, key: KeyEvent) {
+        let row = self.cursor_row.min(self.lines.len().saturating_sub(1));
+        let col = self.cursor_col.min(self.lines.get(row).map(|l| l.chars().count()).unwrap_or(0));
+
+        match key.code {
+            KeyCode::Char(c) => {
+                if let Some(line) = self.lines.get_mut(row) {
+                    let mut chars: Vec<char> = line.chars().collect();
+                    chars.insert(col, c);
+                    *line = chars.into_iter().collect();
+                    self.cursor_col = col + 1;
+                }
+            }
+            KeyCode::Backspace => {
+                if col > 0 {
+                    if let Some(line) = self.lines.get_mut(row) {
+                        let mut chars: Vec<char> = line.chars().collect();
+                        chars.remove(col - 1);
+                        *line = chars.into_iter().collect();
+                        self.cursor_col = col - 1;
+                    }
+                } else if row > 0 {
+                    let cur = self.lines.remove(row);
+                    let prev_len = self.lines.get(row - 1).map(|l| l.chars().count()).unwrap_or(0);
+                    if let Some(prev) = self.lines.get_mut(row - 1) {
+                        prev.push_str(&cur);
+                    }
+                    self.cursor_row = row - 1;
+                    self.cursor_col = prev_len;
+                }
+            }
+            KeyCode::Delete => {
+                let line_len = self.lines.get(row).map(|l| l.chars().count()).unwrap_or(0);
+                if col < line_len {
+                    if let Some(line) = self.lines.get_mut(row) {
+                        let mut chars: Vec<char> = line.chars().collect();
+                        chars.remove(col);
+                        *line = chars.into_iter().collect();
+                    }
+                } else if row + 1 < self.lines.len() {
+                    let next = self.lines.remove(row + 1);
+                    if let Some(cur) = self.lines.get_mut(row) {
+                        cur.push_str(&next);
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(line) = self.lines.get_mut(row) {
+                    let rest: String = line.chars().skip(col).collect();
+                    let new_len = line.chars().count() - rest.chars().count();
+                    *line = line.chars().take(new_len).collect();
+                    self.lines.insert(row + 1, rest);
+                }
+                self.cursor_row = row + 1;
+                self.cursor_col = 0;
+            }
+            KeyCode::Left => {
+                if col > 0 {
+                    self.cursor_col = col - 1;
+                } else if row > 0 {
+                    self.cursor_row = row - 1;
+                    self.cursor_col = self.lines.get(row - 1).map(|l| l.chars().count()).unwrap_or(0);
+                }
+            }
+            KeyCode::Right => {
+                let line_len = self.lines.get(row).map(|l| l.chars().count()).unwrap_or(0);
+                if col < line_len {
+                    self.cursor_col = col + 1;
+                } else if row + 1 < self.lines.len() {
+                    self.cursor_row = row + 1;
+                    self.cursor_col = 0;
+                }
+            }
+            KeyCode::Up => {
+                if row > 0 {
+                    self.cursor_row = row - 1;
+                    let new_line_len = self.lines.get(row - 1).map(|l| l.chars().count()).unwrap_or(0);
+                    self.cursor_col = col.min(new_line_len);
+                }
+            }
+            KeyCode::Down => {
+                if row + 1 < self.lines.len() {
+                    self.cursor_row = row + 1;
+                    let new_line_len = self.lines.get(row + 1).map(|l| l.chars().count()).unwrap_or(0);
+                    self.cursor_col = col.min(new_line_len);
+                }
+            }
+            KeyCode::Home => { self.cursor_col = 0; }
+            KeyCode::End => {
+                self.cursor_col = self.lines.get(row).map(|l| l.chars().count()).unwrap_or(0);
+            }
+            _ => {}
+        }
+    }
+}
+
 pub struct App {
     pub running: bool,
     pub theme: &'static Theme,
@@ -108,6 +227,8 @@ pub struct App {
     pub detail_resize_area: Option<Rect>,
     pub detail_url_area: Option<Rect>,
     pub detail_dragging: bool,
+    pub detail_editing: bool,
+    pub detail_editor: SimpleEditor,
     pub detail_transitions: Vec<JiraTransition>,
     pub detail_transition_open: bool,
     pub detail_transition_selected: usize,
@@ -243,6 +364,8 @@ impl App {
             detail_resize_area: None,
             detail_url_area: None,
             detail_dragging: false,
+            detail_editing: false,
+            detail_editor: SimpleEditor::default(),
             detail_transitions: Vec::new(),
             detail_transition_open: false,
             detail_transition_selected: 0,
@@ -386,6 +509,14 @@ impl App {
                 }
             }
             AppMessage::ChangelogLoaded(_, Err(_)) => {}
+            AppMessage::DescriptionUpdated(key, Ok(())) => {
+                if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
+                    self.detail_editing = false;
+                }
+            }
+            AppMessage::DescriptionUpdated(_, Err(_)) => {
+                self.detail_editing = false;
+            }
             AppMessage::TransitionDone(key, Ok(())) => {
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_transition_open = false;
@@ -485,6 +616,11 @@ impl App {
             return;
         }
 
+        if self.detail_editing {
+            self.handle_editor_key(key);
+            return;
+        }
+
         match self.focus {
             FocusLayer::Auth => self.handle_auth_key(key),
             FocusLayer::Settings => self.handle_settings_key(key),
@@ -530,6 +666,11 @@ impl App {
             KeyCode::Char('t') if self.detail_open && !self.detail_transitions.is_empty() => {
                 self.detail_transition_open = !self.detail_transition_open;
                 self.detail_transition_selected = 0;
+            }
+            KeyCode::Char('e') if self.detail_open && self.detail_tab == 0 => {
+                let desc = self.detail_description.clone().unwrap_or_default();
+                self.detail_editor.load(&desc);
+                self.detail_editing = true;
             }
             KeyCode::Right | KeyCode::Char('l') if self.detail_open && !self.detail_transition_open => {
                 self.detail_tab = (self.detail_tab + 1) % 3;
@@ -1334,6 +1475,43 @@ impl App {
         self.detail_transition_open = false;
         self.detail_transition_selected = 0;
         self.load_issue_detail(&key);
+    }
+
+    pub fn save_description(&self, issue_key: &str, text: String) {
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let key = issue_key.to_string();
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let result = provider.update_description(&key, &text).await;
+            let _ = tx.send(AppMessage::DescriptionUpdated(key, result));
+        });
+    }
+
+    fn handle_editor_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            let text = self.detail_editor.to_text();
+            if let Some(ref issue) = self.detail_issue.clone() {
+                self.detail_description = Some(text.clone());
+                self.save_description(&issue.key, text);
+            }
+            self.detail_editing = false;
+            return;
+        }
+        if key.code == KeyCode::Esc {
+            self.detail_editing = false;
+            return;
+        }
+        self.detail_editor.input(key);
     }
 
     fn load_issue_detail(&self, issue_key: &str) {

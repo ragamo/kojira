@@ -28,6 +28,7 @@ pub enum AppMessage {
     CommentsLoaded(String, Result<Vec<JiraComment>, JiraError>),
     TransitionDone(String, Result<(), JiraError>),
     ChangelogLoaded(String, Result<Vec<JiraChangelogEntry>, JiraError>),
+    DescriptionUpdated(String, Result<(), JiraError>),
 }
 
 pub async fn event_loop(tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {

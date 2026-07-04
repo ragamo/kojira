@@ -172,6 +172,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(1), // tabs
         Constraint::Length(1), // separator
         Constraint::Min(0),   // content
+        Constraint::Length(1), // statusbar
     ])
     .split(inner);
 
@@ -277,6 +278,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Split content into main (left) and metadata (right)
     let content_area = chunks[4];
+    let statusbar_area = chunks[5];
     let meta_width = 28u16;
     let content_splits = Layout::horizontal([
         Constraint::Min(20),
@@ -287,13 +289,71 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let desc_area = content_splits[0];
     let meta_area = content_splits[1];
 
+    // If editing, render inline editor and metadata, then return
+    if app.detail_editing && app.detail_tab == 0 {
+        let editor_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(t.accent))
+            .title(" editing ")
+            .title_style(Style::default().fg(t.text_dim));
+        let editor_inner = editor_block.inner(desc_area);
+        frame.render_widget(editor_block, desc_area);
+
+        let cursor_row = app.detail_editor.cursor_row;
+        let visible_height = editor_inner.height as usize;
+
+        // Scroll to keep cursor visible
+        if cursor_row < app.detail_editor.scroll as usize {
+            app.detail_editor.scroll = cursor_row as u16;
+        } else if cursor_row >= app.detail_editor.scroll as usize + visible_height {
+            app.detail_editor.scroll = (cursor_row + 1 - visible_height) as u16;
+        }
+
+        let scroll = app.detail_editor.scroll as usize;
+        let lines_to_render: Vec<Line> = app
+            .detail_editor
+            .lines
+            .iter()
+            .enumerate()
+            .skip(scroll)
+            .take(visible_height)
+            .map(|(row_idx, line)| {
+                let is_cursor_row = row_idx == cursor_row;
+                if is_cursor_row {
+                    let col = app.detail_editor.cursor_col.min(line.chars().count());
+                    let before: String = line.chars().take(col).collect();
+                    let cursor_char: String = line.chars().nth(col).map(|c| c.to_string()).unwrap_or(" ".to_string());
+                    let after: String = line.chars().skip(col + 1).collect();
+                    Line::from(vec![
+                        Span::styled(before, Style::default().fg(t.text)),
+                        Span::styled(cursor_char, Style::default().fg(t.bg).bg(t.accent)),
+                        Span::styled(after, Style::default().fg(t.text)),
+                    ])
+                } else {
+                    Line::from(Span::styled(line.as_str(), Style::default().fg(t.text)))
+                }
+            })
+            .collect();
+
+        frame.render_widget(Paragraph::new(lines_to_render), editor_inner);
+        render_metadata(frame, app, t, &issue, meta_area);
+        let edit_statusbar = Line::from(vec![
+            Span::styled(" Ctrl+S", Style::default().fg(t.accent)),
+            Span::styled(" save  ", Style::default().fg(t.text_dim)),
+            Span::styled("Esc", Style::default().fg(t.accent)),
+            Span::styled(" cancel", Style::default().fg(t.text_dim)),
+        ]);
+        frame.render_widget(Paragraph::new(edit_statusbar), statusbar_area);
+        return;
+    }
+
     // Tab content
     let content_lines: Vec<Line> = match app.detail_tab {
         0 => {
             let text = if let Some(ref desc) = app.detail_description {
                 desc.clone()
             } else {
-                "Loading...".into()
+                "Loading...  press e to edit".into()
             };
             text.lines()
                 .map(|l| Line::from(Span::styled(l.to_string(), Style::default().fg(t.text))))
@@ -377,6 +437,30 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Metadata panel
     render_metadata(frame, app, t, &issue, meta_area);
+
+    // Status bar
+    let statusbar = if app.detail_tab == 0 {
+        Line::from(vec![
+            Span::styled(" e", Style::default().fg(t.accent)),
+            Span::styled(" edit  ", Style::default().fg(t.text_dim)),
+            Span::styled("←→", Style::default().fg(t.accent)),
+            Span::styled(" tabs  ", Style::default().fg(t.text_dim)),
+            Span::styled("t", Style::default().fg(t.accent)),
+            Span::styled(" transition  ", Style::default().fg(t.text_dim)),
+            Span::styled("Esc", Style::default().fg(t.accent)),
+            Span::styled(" close", Style::default().fg(t.text_dim)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("←→", Style::default().fg(t.accent)),
+            Span::styled(" tabs  ", Style::default().fg(t.text_dim)),
+            Span::styled("↑↓", Style::default().fg(t.accent)),
+            Span::styled(" scroll  ", Style::default().fg(t.text_dim)),
+            Span::styled("Esc", Style::default().fg(t.accent)),
+            Span::styled(" close", Style::default().fg(t.text_dim)),
+        ])
+    };
+    frame.render_widget(Paragraph::new(statusbar), statusbar_area);
 
     // Transition dropdown (rendered last to overlay everything)
     if app.detail_transition_open {
