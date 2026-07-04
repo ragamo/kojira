@@ -72,33 +72,52 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     render_editor_with_label(frame, &mut app.create_modal.description_editor, desc_area, t, focused, "description");
     app.create_field_areas.push((desc_area, CreateField::Description));
 
-    // === RIGHT COLUMN: Assignee, Epic, Priority ===
+    // === RIGHT COLUMN: IssueType, Priority, Epic, Assignee ===
     let right_inner_x = right.x + 1;
     let right_inner_w = right.width.saturating_sub(2);
 
-    // Assignee
-    let assignee_border = if app.create_modal.active_field == CreateField::Assignee { t.accent } else { t.border };
-    let assignee_area = Rect { x: right_inner_x, y: right.y, width: right_inner_w, height: 3 };
-    let assignee_text = if app.create_modal.loading_assignees {
+    // Issue Type
+    let issue_type_border = if app.create_modal.active_field == CreateField::IssueType { t.accent } else { t.border };
+    let issue_type_area = Rect { x: right_inner_x, y: right.y, width: right_inner_w, height: 3 };
+    let issue_type_text = if app.create_modal.loading_issue_types {
         "Loading...".to_string()
-    } else if let Some(idx) = app.create_modal.assignee_idx {
-        app.create_modal.assignees.get(idx).map(|u| u.display_name.clone()).unwrap_or_default()
     } else {
-        "Select...".to_string()
+        app.create_modal.issue_types
+            .get(app.create_modal.issue_type_idx)
+            .cloned()
+            .unwrap_or_else(|| "Task".to_string())
     };
-    let assignee_widget = Paragraph::new(Span::styled(&assignee_text, Style::default().fg(t.text)))
+    let issue_type_widget = Paragraph::new(Span::styled(&issue_type_text, Style::default().fg(t.text)))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(assignee_border))
-                .title(" assignee ")
+                .border_style(Style::default().fg(issue_type_border))
+                .title(" type ")
                 .title_style(Style::default().fg(t.text_dim)),
         );
-    frame.render_widget(assignee_widget, assignee_area);
-    app.create_field_areas.push((assignee_area, CreateField::Assignee));
+    frame.render_widget(issue_type_widget, issue_type_area);
+    app.create_field_areas.push((issue_type_area, CreateField::IssueType));
+
+    // Priority
+    let priority_y = right.y + 4;
+    let priority_border = if app.create_modal.active_field == CreateField::Priority { t.accent } else { t.border };
+    let priority_area = Rect { x: right_inner_x, y: priority_y, width: right_inner_w, height: 3 };
+    let priority_widget = Paragraph::new(Span::styled(
+        PRIORITIES[app.create_modal.priority_idx],
+        Style::default().fg(t.text),
+    ))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(priority_border))
+            .title(" priority ")
+            .title_style(Style::default().fg(t.text_dim)),
+    );
+    frame.render_widget(priority_widget, priority_area);
+    app.create_field_areas.push((priority_area, CreateField::Priority));
 
     // Epic
-    let epic_y = right.y + 4;
+    let epic_y = priority_y + 4;
     let epic_border = if app.create_modal.active_field == CreateField::Epic { t.accent } else { t.border };
     let epic_area = Rect { x: right_inner_x, y: epic_y, width: right_inner_w, height: 3 };
     let epic_text = if app.create_modal.loading_epics {
@@ -119,50 +138,31 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(epic_widget, epic_area);
     app.create_field_areas.push((epic_area, CreateField::Epic));
 
-    // Priority
-    let priority_y = epic_y + 4;
-    let priority_border = if app.create_modal.active_field == CreateField::Priority { t.accent } else { t.border };
-    let priority_area = Rect { x: right_inner_x, y: priority_y, width: right_inner_w, height: 3 };
-    let priority_widget = Paragraph::new(Span::styled(
-        PRIORITIES[app.create_modal.priority_idx],
-        Style::default().fg(t.text),
-    ))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(priority_border))
-            .title(" priority ")
-            .title_style(Style::default().fg(t.text_dim)),
-    );
-    frame.render_widget(priority_widget, priority_area);
-    app.create_field_areas.push((priority_area, CreateField::Priority));
-
-    // Issue Type
-    let issue_type_y = priority_y + 4;
-    let issue_type_border = if app.create_modal.active_field == CreateField::IssueType { t.accent } else { t.border };
-    let issue_type_area = Rect { x: right_inner_x, y: issue_type_y, width: right_inner_w, height: 3 };
-    let issue_type_text = if app.create_modal.loading_issue_types {
+    // Assignee
+    let assignee_y = epic_y + 4;
+    let assignee_border = if app.create_modal.active_field == CreateField::Assignee { t.accent } else { t.border };
+    let assignee_area = Rect { x: right_inner_x, y: assignee_y, width: right_inner_w, height: 3 };
+    let assignee_text = if app.create_modal.loading_assignees {
         "Loading...".to_string()
+    } else if let Some(idx) = app.create_modal.assignee_idx {
+        app.create_modal.assignees.get(idx).map(|u| u.display_name.clone()).unwrap_or_default()
     } else {
-        app.create_modal.issue_types
-            .get(app.create_modal.issue_type_idx)
-            .cloned()
-            .unwrap_or_else(|| "Task".to_string())
+        "Select...".to_string()
     };
-    let issue_type_widget = Paragraph::new(Span::styled(&issue_type_text, Style::default().fg(t.text)))
+    let assignee_widget = Paragraph::new(Span::styled(&assignee_text, Style::default().fg(t.text)))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(issue_type_border))
-                .title(" type ")
+                .border_style(Style::default().fg(assignee_border))
+                .title(" assignee ")
                 .title_style(Style::default().fg(t.text_dim)),
         );
-    frame.render_widget(issue_type_widget, issue_type_area);
-    app.create_field_areas.push((issue_type_area, CreateField::IssueType));
+    frame.render_widget(assignee_widget, assignee_area);
+    app.create_field_areas.push((assignee_area, CreateField::Assignee));
 
     // Error message
     if let Some(ref err) = app.create_modal.error {
-        let err_y = issue_type_y + 4;
+        let err_y = assignee_y + 4;
         let err_area = Rect { x: right_inner_x, y: err_y, width: right_inner_w, height: 1 };
         frame.render_widget(
             Paragraph::new(err.as_str()).style(Style::default().fg(t.error)),
