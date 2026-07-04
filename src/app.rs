@@ -438,6 +438,8 @@ impl App {
         let mut board_tabs: Vec<BoardTab> = Vec::new();
         let mut tab_order: Vec<Tab> = Vec::new();
 
+        let resolved_tabs = if logged_in { resolved_tabs } else { Vec::new() };
+
         for open_tab in resolved_tabs.iter() {
             match open_tab {
                 OpenTab::List { id, project_key, project_name } => {
