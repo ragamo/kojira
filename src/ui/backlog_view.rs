@@ -68,8 +68,13 @@ fn status_color(issue: &JiraIssue, theme: &Theme) -> Color {
     }
 }
 
-pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut App, list_id: u64, area: Rect) {
     let t = app.theme;
+
+    let tab = match app.list_tabs.iter().find(|t| t.id == list_id).cloned() {
+        Some(t) => t,
+        None => return,
+    };
 
     // Filter bar
     let chunks = Layout::vertical([
@@ -78,11 +83,10 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     ])
     .split(area);
 
-    render_filters(frame, app, chunks[0]);
+    render_filters(frame, app, &tab, chunks[0]);
     let content_area = chunks[1];
 
-    if app.backlog_loading {
-        let area = content_area;
+    if tab.loading {
         let loading = Paragraph::new("Loading backlog...")
             .style(Style::default().fg(t.text_dim))
             .alignment(Alignment::Center)
@@ -92,12 +96,12 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(t.border)),
             );
-        frame.render_widget(loading, area);
+        frame.render_widget(loading, content_area);
         return;
     }
 
-    if app.backlog_issues.is_empty() {
-        let msg = if let Some(ref err) = app.backlog_error {
+    if tab.issues.is_empty() {
+        let msg = if let Some(ref err) = tab.error {
             format!("Error: {} — press r to retry", err)
         } else if app.projects.is_empty() {
             "No project selected".into()
@@ -119,14 +123,12 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let area = content_area;
 
-    let filtered_issues: Vec<&JiraIssue> = app
-        .backlog_issues
+    let filtered_issues: Vec<&JiraIssue> = tab
+        .issues
         .iter()
-        .filter(|issue| {
-            match &app.backlog_filter {
-                None => true,
-                Some(f) => issue.fields.status.name == *f,
-            }
+        .filter(|issue| match &tab.filter {
+            None => true,
+            Some(f) => issue.fields.status.name == *f,
         })
         .collect();
 
@@ -146,12 +148,19 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let item_count = filtered_issues.len();
     let visible_rows = area.height.saturating_sub(3) as usize;
-    app.backlog_nav.visible_rows = visible_rows;
-    app.backlog_nav.clamp(item_count);
+
+    // Update nav state on the actual tab
+    if let Some(real_tab) = app.list_tabs.iter_mut().find(|t| t.id == list_id) {
+        real_tab.nav.visible_rows = visible_rows;
+        real_tab.nav.clamp(item_count);
+    }
+
+    let nav_offset = app.list_tabs.iter().find(|t| t.id == list_id).map(|t| t.nav.offset).unwrap_or(0);
+    let nav_selected = app.list_tabs.iter().find(|t| t.id == list_id).and_then(|t| t.nav.selected);
 
     let visible_issues: Vec<&&JiraIssue> = filtered_issues
         .iter()
-        .skip(app.backlog_nav.offset)
+        .skip(nav_offset)
         .take(visible_rows)
         .collect();
 
@@ -162,8 +171,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, issue)| {
-            let actual_index = app.backlog_nav.offset + i;
-            let is_selected = app.backlog_nav.selected == Some(actual_index);
+            let actual_index = nav_offset + i;
+            let is_selected = nav_selected == Some(actual_index);
 
             let status_color = status_color(issue, t);
 
@@ -214,8 +223,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let scroll_indicator = if item_count > visible_rows {
         format!(
             " {}-{}/{} ",
-            app.backlog_nav.offset + 1,
-            (app.backlog_nav.offset + visible_issues.len()).min(item_count),
+            nav_offset + 1,
+            (nav_offset + visible_issues.len()).min(item_count),
             item_count
         )
     } else {
@@ -266,7 +275,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     if item_count > visible_rows {
         let mut scrollbar_state =
             ScrollbarState::new(item_count.saturating_sub(visible_rows))
-                .position(app.backlog_nav.offset);
+                .position(nav_offset);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
@@ -282,13 +291,12 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn render_filters(frame: &mut Frame, app: &mut App, area: Rect) {
+fn render_filters(frame: &mut Frame, app: &mut App, tab: &crate::app::ListTab, area: Rect) {
     let t = app.theme;
     let mut filter_areas = Vec::new();
     let mut x_offset = area.x;
 
-    // "all" tab first
-    let all_active = app.backlog_filter.is_none();
+    let all_active = tab.filter.is_none();
     let all_style = if all_active {
         Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
     } else {
@@ -304,8 +312,8 @@ fn render_filters(frame: &mut Frame, app: &mut App, area: Rect) {
         Span::raw(" "),
     ];
 
-    for status in &app.backlog_statuses.clone() {
-        let is_active = app.backlog_filter.as_deref() == Some(status.as_str());
+    for status in &tab.statuses.clone() {
+        let is_active = tab.filter.as_deref() == Some(status.as_str());
         let style = if is_active {
             Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
         } else {

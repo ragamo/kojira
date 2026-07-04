@@ -46,6 +46,7 @@ pub struct FindModalRegion {
     pub bounds: Option<Rect>,
     pub result_areas: Vec<Rect>,
     pub star_areas: Vec<Rect>,
+    pub panel_item_areas: Vec<Rect>,
 }
 
 #[derive(Default)]

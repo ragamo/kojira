@@ -170,22 +170,30 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let mut x = area.x;
     let mut tab_areas: Vec<(Rect, usize)> = Vec::new();
+    let mut global_idx = 0usize;
 
-    // Tab 0: Backlog
-    let backlog_label = " list ";
-    let backlog_w = backlog_label.len() as u16;
-    let backlog_style = if app.active_tab == Tab::Backlog {
-        Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(t.text_dim)
-    };
-    let backlog_area = Rect { x, y: area.y, width: backlog_w, height: 1 };
-    frame.render_widget(Paragraph::new(Span::styled(backlog_label, backlog_style)), backlog_area);
-    tab_areas.push((backlog_area, 0));
-    x += backlog_w + 1;
+    // List tabs
+    for lt in &app.list_tabs.clone() {
+        let label = format!(" {} ", lt.project_key);
+        let w = label.len() as u16;
+        if x + w > area.x + area.width.saturating_sub(15) {
+            break;
+        }
+        let is_active = app.active_tab == Tab::List(lt.id);
+        let style = if is_active {
+            Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(t.text_dim)
+        };
+        let tab_area = Rect { x, y: area.y, width: w, height: 1 };
+        frame.render_widget(Paragraph::new(Span::styled(&label, style)), tab_area);
+        tab_areas.push((tab_area, global_idx));
+        x += w + 1;
+        global_idx += 1;
+    }
 
     // Board tabs
-    for (i, bt) in app.board_tabs.iter().enumerate() {
+    for bt in &app.board_tabs.clone() {
         let label = format!(" {} ", bt.board_name);
         let w = label.len() as u16;
         if x + w > area.x + area.width.saturating_sub(15) {
@@ -199,8 +207,9 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
         };
         let tab_area = Rect { x, y: area.y, width: w, height: 1 };
         frame.render_widget(Paragraph::new(Span::styled(&label, style)), tab_area);
-        tab_areas.push((tab_area, i + 1));
+        tab_areas.push((tab_area, global_idx));
         x += w + 1;
+        global_idx += 1;
     }
 
     // "+" button
@@ -239,9 +248,9 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_content(frame: &mut Frame, app: &mut App, area: Rect) {
-    match &app.active_tab.clone() {
-        Tab::Backlog => crate::ui::backlog_view::render(frame, app, area),
-        Tab::Board(id) => crate::ui::board_view::render(frame, app, *id, area),
+    match app.active_tab.clone() {
+        Tab::List(id) => crate::ui::backlog_view::render(frame, app, id, area),
+        Tab::Board(id) => crate::ui::board_view::render(frame, app, id, area),
     }
 }
 

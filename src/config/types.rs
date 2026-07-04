@@ -31,7 +31,7 @@ pub struct JiraConfig {
     #[serde(default)]
     pub favorites: Vec<FavoriteProject>,
     #[serde(default)]
-    pub open_boards: Vec<OpenBoard>,
+    pub open_tabs: Vec<OpenTab>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,9 +40,17 @@ pub struct FavoriteProject {
     pub name: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpenBoard {
-    pub project_key: String,
-    pub board_id: u64,
-    pub board_name: String,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum OpenTab {
+    List {
+        project_key: String,
+        project_name: String,
+        id: u64,
+    },
+    Board {
+        project_key: String,
+        board_id: u64,
+        board_name: String,
+    },
 }

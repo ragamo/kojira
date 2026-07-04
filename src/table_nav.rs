@@ -1,4 +1,4 @@
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TableNav {
     pub offset: usize,
     pub selected: Option<usize>,

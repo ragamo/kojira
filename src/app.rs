@@ -4,7 +4,7 @@ use ratatui::prelude::Rect;
 use tokio::sync::mpsc;
 
 use crate::config;
-use crate::config::types::{AppConfig, FavoriteProject, OpenBoard};
+use crate::config::types::{AppConfig, FavoriteProject, OpenTab};
 use crate::event::{AppEvent, AppMessage};
 use crate::provider::jira::JiraProvider;
 use crate::provider::types::{IssueMetadata, JiraBoard, JiraChangelogEntry, JiraComment, JiraIssue, JiraTransition};
@@ -14,8 +14,21 @@ use crate::ui::click_regions::ClickRegions;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
-    Backlog,
+    List(u64),
     Board(u64),
+}
+
+#[derive(Debug, Clone)]
+pub struct ListTab {
+    pub id: u64,
+    pub project_key: String,
+    pub project_name: String,
+    pub issues: Vec<JiraIssue>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub nav: TableNav,
+    pub filter: Option<String>,
+    pub statuses: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +54,7 @@ pub enum FocusLayer {
     Settings,
     Auth,
     Find,
+    FindBoardPanel,
     BoardPicker,
     ProjectDropdown,
 }
@@ -202,13 +216,11 @@ pub struct App {
     pub is_validating: bool,
     pub auth_error: Option<String>,
 
-    // Backlog
-    pub backlog_issues: Vec<JiraIssue>,
-    pub backlog_loading: bool,
-    pub backlog_error: Option<String>,
-    pub backlog_nav: TableNav,
-    pub backlog_filter: Option<String>,
-    pub backlog_statuses: Vec<String>,
+    // List tabs (each is an independent backlog view)
+    pub list_tabs: Vec<ListTab>,
+    pub next_list_id: u64,
+
+    // column_order is still shared (same project → same board config)
     pub column_order: Vec<String>,
 
     // Detail panel
@@ -247,6 +259,14 @@ pub struct App {
     pub find_results: Vec<FindProject>,
     pub find_selected: usize,
     pub find_loading: bool,
+
+    // Find modal – board panel (right side)
+    pub find_board_panel_open: bool,
+    pub find_panel_project: Option<FindProject>,
+    pub find_panel_boards: Vec<JiraBoard>,
+    pub find_panel_selected: Vec<bool>,
+    pub find_panel_cursor: usize,
+    pub find_panel_loading: bool,
 
     // Async messaging
     pub message_tx: mpsc::UnboundedSender<AppMessage>,
@@ -296,20 +316,63 @@ impl App {
         let user_email = config.auth.email.clone();
 
         let current_project_key = projects.first().map(|p| p.key.clone()).unwrap_or_default();
-        let board_tabs: Vec<BoardTab> = config
-            .jira
-            .open_boards
-            .iter()
-            .filter(|b| b.project_key == current_project_key)
-            .map(|b| BoardTab {
-                board_id: b.board_id,
-                board_name: b.board_name.clone(),
-                columns: Vec::new(),
-                col_scroll: Vec::new(),
-                loading: true,
+        let current_project_name = projects.first().map(|p| p.name.clone()).unwrap_or_default();
+
+        let mut next_list_id: u64 = 1;
+        let mut list_tabs: Vec<ListTab> = Vec::new();
+        let mut board_tabs: Vec<BoardTab> = Vec::new();
+
+        for open_tab in config.jira.open_tabs.iter().filter(|t| match t {
+            OpenTab::List { project_key, .. } => project_key == &current_project_key,
+            OpenTab::Board { project_key, .. } => project_key == &current_project_key,
+        }) {
+            match open_tab {
+                OpenTab::List { id, project_key, project_name } => {
+                    list_tabs.push(ListTab {
+                        id: *id,
+                        project_key: project_key.clone(),
+                        project_name: project_name.clone(),
+                        issues: Vec::new(),
+                        loading: true,
+                        error: None,
+                        nav: TableNav::default(),
+                        filter: None,
+                        statuses: Vec::new(),
+                    });
+                    if *id >= next_list_id {
+                        next_list_id = id + 1;
+                    }
+                }
+                OpenTab::Board { board_id, board_name, .. } => {
+                    board_tabs.push(BoardTab {
+                        board_id: *board_id,
+                        board_name: board_name.clone(),
+                        columns: Vec::new(),
+                        col_scroll: Vec::new(),
+                        loading: true,
+                        error: None,
+                    });
+                }
+            }
+        }
+
+        // If no list tabs persisted, create the default one
+        if list_tabs.is_empty() && !current_project_key.is_empty() {
+            list_tabs.push(ListTab {
+                id: next_list_id,
+                project_key: current_project_key.clone(),
+                project_name: current_project_name.clone(),
+                issues: Vec::new(),
+                loading: false,
                 error: None,
-            })
-            .collect();
+                nav: TableNav::default(),
+                filter: None,
+                statuses: Vec::new(),
+            });
+            next_list_id += 1;
+        }
+
+        let first_list_id = list_tabs.first().map(|t| t.id).unwrap_or(0);
         let subdomain = config
             .jira
             .base_url
@@ -323,7 +386,7 @@ impl App {
             running: true,
             theme,
             header_bg_soft,
-            active_tab: Tab::Backlog,
+            active_tab: Tab::List(first_list_id),
             projects,
             selected_project: 0,
             project_selector_open: false,
@@ -341,12 +404,8 @@ impl App {
             is_validating: false,
             auth_error: None,
 
-            backlog_issues: Vec::new(),
-            backlog_loading: false,
-            backlog_error: None,
-            backlog_nav: TableNav::default(),
-            backlog_filter: None,
-            backlog_statuses: Vec::new(),
+            list_tabs,
+            next_list_id,
             column_order: Vec::new(),
 
             detail_open: false,
@@ -382,6 +441,13 @@ impl App {
             find_results: Vec::new(),
             find_selected: 0,
             find_loading: false,
+
+            find_board_panel_open: false,
+            find_panel_project: None,
+            find_panel_boards: Vec::new(),
+            find_panel_selected: Vec::new(),
+            find_panel_cursor: 0,
+            find_panel_loading: false,
 
             message_tx,
             http_client: reqwest::Client::new(),
@@ -436,36 +502,36 @@ impl App {
                 self.auth_error = None;
                 self.focus = FocusLayer::Main;
                 if !self.projects.is_empty() {
-                    self.backlog_loading = true;
-                    self.load_backlog();
+                    self.load_all_list_tabs();
                 }
             }
             AppMessage::TokenValidated(Err(e)) => {
                 self.is_validating = false;
                 self.auth_error = Some(e.to_string());
             }
-            AppMessage::BacklogLoaded(Ok(issues)) => {
-                let mut statuses: Vec<String> = Vec::new();
-                for issue in &issues {
-                    let name = &issue.fields.status.name;
-                    if !statuses.contains(name) {
-                        statuses.push(name.clone());
+            AppMessage::BacklogLoaded(tab_id, Ok(issues)) => {
+                let col_order = self.column_order.clone();
+                if let Some(tab) = self.list_tabs.iter_mut().find(|t| t.id == tab_id) {
+                    let mut statuses: Vec<String> = Vec::new();
+                    for issue in &issues {
+                        let name = &issue.fields.status.name;
+                        if !statuses.contains(name) {
+                            statuses.push(name.clone());
+                        }
                     }
+                    if !col_order.is_empty() {
+                        statuses.sort_by_key(|s| {
+                            col_order
+                                .iter()
+                                .position(|c| c.eq_ignore_ascii_case(s))
+                                .unwrap_or(usize::MAX)
+                        });
+                    }
+                    tab.statuses = statuses;
+                    tab.issues = issues;
+                    tab.loading = false;
+                    tab.nav.reset();
                 }
-
-                if !self.column_order.is_empty() {
-                    statuses.sort_by_key(|s| {
-                        self.column_order
-                            .iter()
-                            .position(|c| c.eq_ignore_ascii_case(s))
-                            .unwrap_or(usize::MAX)
-                    });
-                }
-
-                self.backlog_statuses = statuses;
-                self.backlog_issues = issues;
-                self.backlog_loading = false;
-                self.backlog_nav.reset();
             }
             AppMessage::ColumnOrderLoaded(Ok(columns)) => {
                 let project_key = self
@@ -474,14 +540,16 @@ impl App {
                     .map(|p| p.key.as_str())
                     .unwrap_or("");
                 config::save_column_order_cache(project_key, &columns);
-                self.column_order = columns;
-                if !self.backlog_statuses.is_empty() && !self.column_order.is_empty() {
-                    self.backlog_statuses.sort_by_key(|s| {
-                        self.column_order
-                            .iter()
-                            .position(|c| c.eq_ignore_ascii_case(s))
-                            .unwrap_or(usize::MAX)
-                    });
+                self.column_order = columns.clone();
+                for tab in &mut self.list_tabs {
+                    if !tab.statuses.is_empty() {
+                        tab.statuses.sort_by_key(|s| {
+                            columns
+                                .iter()
+                                .position(|c| c.eq_ignore_ascii_case(s))
+                                .unwrap_or(usize::MAX)
+                        });
+                    }
                 }
             }
             AppMessage::IssueDetailLoaded(key, Ok((desc, metadata))) => {
@@ -520,17 +588,17 @@ impl App {
             AppMessage::TransitionDone(key, Ok(())) => {
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_transition_open = false;
-                    // Reload to update status
                     self.load_issue_detail(&key.clone());
-                    self.backlog_loading = true;
-                    self.load_backlog();
+                    self.reload_all_list_tabs();
                 }
             }
             AppMessage::TransitionDone(_, Err(_)) => {}
             AppMessage::ColumnOrderLoaded(Err(_)) => {}
-            AppMessage::BacklogLoaded(Err(e)) => {
-                self.backlog_loading = false;
-                self.backlog_error = Some(e.to_string());
+            AppMessage::BacklogLoaded(tab_id, Err(e)) => {
+                if let Some(tab) = self.list_tabs.iter_mut().find(|t| t.id == tab_id) {
+                    tab.loading = false;
+                    tab.error = Some(e.to_string());
+                }
             }
             AppMessage::BoardsLoaded(Ok(boards)) => {
                 self.board_picker_boards = boards;
@@ -538,6 +606,17 @@ impl App {
             }
             AppMessage::BoardsLoaded(Err(_)) => {
                 self.board_picker_loading = false;
+            }
+            AppMessage::BoardsForFindLoaded(project_key, Ok(boards)) => {
+                if self.find_panel_project.as_ref().map(|p| &p.key) == Some(&project_key) {
+                    let total = boards.len() + 1; // +1 for list tab
+                    self.find_panel_boards = boards;
+                    self.find_panel_selected = vec![false; total];
+                    self.find_panel_loading = false;
+                }
+            }
+            AppMessage::BoardsForFindLoaded(_, Err(_)) => {
+                self.find_panel_loading = false;
             }
             AppMessage::BoardDataLoaded(board_id, Ok((cfg, issues))) => {
                 if let Some(tab) = self.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
@@ -625,6 +704,7 @@ impl App {
             FocusLayer::Auth => self.handle_auth_key(key),
             FocusLayer::Settings => self.handle_settings_key(key),
             FocusLayer::Find => self.handle_find_key(key),
+            FocusLayer::FindBoardPanel => self.handle_find_board_panel_key(key),
             FocusLayer::BoardPicker => self.handle_board_picker_key(key),
             FocusLayer::ProjectDropdown => self.handle_dropdown_key(key),
             FocusLayer::Main => self.handle_main_key(key),
@@ -636,11 +716,11 @@ impl App {
             KeyCode::Char('q') => self.running = false,
             KeyCode::Tab => self.next_tab(),
             KeyCode::BackTab => self.prev_tab(),
-            KeyCode::Char('1') => self.active_tab = Tab::Backlog,
-            KeyCode::Char(c @ '2'..='9') => {
-                let idx = (c as usize) - ('2' as usize);
-                if idx < self.board_tabs.len() {
-                    self.active_tab = Tab::Board(self.board_tabs[idx].board_id);
+            KeyCode::Char(c @ '1'..='9') => {
+                let idx = (c as usize) - ('1' as usize);
+                let all = self.all_tab_ids();
+                if let Some(tab) = all.get(idx) {
+                    self.active_tab = tab.clone();
                 }
             }
             KeyCode::Char('p') => {
@@ -650,8 +730,8 @@ impl App {
             KeyCode::Char('f') => self.open_find(),
             KeyCode::Char('r') => self.refresh_active_tab(),
             KeyCode::Char(',') => self.open_settings(),
-            KeyCode::Char('x') => self.close_active_board_tab(),
-            KeyCode::Enter if self.active_tab == Tab::Backlog && !self.detail_open => {
+            KeyCode::Char('x') => self.close_active_tab(),
+            KeyCode::Enter if matches!(self.active_tab, Tab::List(_)) && !self.detail_open => {
                 self.open_detail_from_backlog();
             }
             KeyCode::Esc if self.detail_transition_open => {
@@ -705,13 +785,17 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') if self.detail_open => {
                 self.detail_scroll = self.detail_scroll.saturating_sub(1);
             }
-            KeyCode::Down | KeyCode::Char('j') if self.active_tab == Tab::Backlog => {
+            KeyCode::Down | KeyCode::Char('j') if matches!(self.active_tab, Tab::List(_)) => {
                 let count = self.filtered_backlog_count();
-                self.backlog_nav.move_down(count);
+                if let Some(tab) = self.active_list_tab_mut() {
+                    tab.nav.move_down(count);
+                }
             }
-            KeyCode::Up | KeyCode::Char('k') if self.active_tab == Tab::Backlog => {
+            KeyCode::Up | KeyCode::Char('k') if matches!(self.active_tab, Tab::List(_)) => {
                 let count = self.filtered_backlog_count();
-                self.backlog_nav.move_up(count);
+                if let Some(tab) = self.active_list_tab_mut() {
+                    tab.nav.move_up(count);
+                }
             }
             _ => {}
         }
@@ -829,15 +913,7 @@ impl App {
                     self.find_loading = true;
                     self.search_projects();
                 } else if let Some(project) = self.find_results.get(self.find_selected).cloned() {
-                    self.add_favorite(&project);
-                    self.selected_project = self
-                        .projects
-                        .iter()
-                        .position(|p| p.key == project.key)
-                        .unwrap_or(0);
-                    self.find_modal_open = false;
-                    self.focus = FocusLayer::Main;
-                    self.on_project_changed();
+                    self.open_find_board_panel(project);
                 }
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -869,6 +945,140 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn open_find_board_panel(&mut self, project: FindProject) {
+        self.find_board_panel_open = true;
+        self.find_panel_project = Some(project.clone());
+        self.find_panel_boards.clear();
+        self.find_panel_selected.clear();
+        self.find_panel_cursor = 0;
+        self.find_panel_loading = true;
+        self.focus = FocusLayer::FindBoardPanel;
+        self.load_boards_for_find_project(project.key);
+    }
+
+    fn handle_find_board_panel_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.find_board_panel_open = false;
+                self.find_panel_project = None;
+                self.focus = FocusLayer::Find;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.find_panel_cursor > 0 {
+                    self.find_panel_cursor -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let total = self.find_panel_boards.len() + 1; // +1 for the List tab item
+                if self.find_panel_cursor < total.saturating_sub(1) {
+                    self.find_panel_cursor += 1;
+                }
+            }
+            KeyCode::Char(' ') => {
+                self.toggle_find_panel_item(self.find_panel_cursor);
+            }
+            KeyCode::Enter => {
+                // Toggle current item then confirm
+                self.toggle_find_panel_item(self.find_panel_cursor);
+                self.confirm_find_panel_selection();
+            }
+            KeyCode::Char('a') => {
+                self.confirm_find_panel_selection();
+            }
+            _ => {}
+        }
+    }
+
+    fn toggle_find_panel_item(&mut self, idx: usize) {
+        let total = self.find_panel_boards.len() + 1;
+        if self.find_panel_selected.len() < total {
+            self.find_panel_selected.resize(total, false);
+        }
+        if idx < total {
+            self.find_panel_selected[idx] = !self.find_panel_selected[idx];
+        }
+    }
+
+    fn confirm_find_panel_selection(&mut self) {
+        let project = match self.find_panel_project.clone() {
+            Some(p) => p,
+            None => return,
+        };
+
+        self.add_favorite(&project);
+        self.selected_project = self
+            .projects
+            .iter()
+            .position(|p| p.key == project.key)
+            .unwrap_or(0);
+
+        // Ensure selected vec is sized correctly (1 list item + boards)
+        let total = self.find_panel_boards.len() + 1;
+        if self.find_panel_selected.len() < total {
+            self.find_panel_selected.resize(total, false);
+        }
+
+        // If nothing selected, default to just the list tab (switch project only)
+        let any_selected = self.find_panel_selected.iter().any(|&s| s);
+
+        // Collect boards to open (indices start at 1, idx 0 = list tab)
+        let boards_to_add: Vec<JiraBoard> = self
+            .find_panel_boards
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.find_panel_selected.get(i + 1).copied().unwrap_or(false))
+            .map(|(_, b)| b.clone())
+            .collect();
+
+        // Switch project first (creates a default list tab)
+        self.on_project_changed();
+
+        // If list tab was not selected and boards were selected, don't force list active
+        // on_project_changed already set active_tab to the new list tab
+        // If only boards selected, switch to the first board after adding
+        let only_boards = any_selected
+            && !self.find_panel_selected.get(0).copied().unwrap_or(false)
+            && !boards_to_add.is_empty();
+
+        // Add board tabs
+        for board in boards_to_add {
+            self.add_board_tab(board);
+        }
+
+        if !only_boards {
+            // Ensure we're on the list tab
+            if let Some(first_list) = self.list_tabs.first() {
+                self.active_tab = Tab::List(first_list.id);
+            }
+        }
+
+        // Close modals
+        self.find_board_panel_open = false;
+        self.find_modal_open = false;
+        self.find_panel_project = None;
+        self.focus = FocusLayer::Main;
+    }
+
+    fn load_boards_for_find_project(&self, project_key: String) {
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let key_clone = project_key.clone();
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let result = provider.get_boards(&key_clone).await;
+            let _ = tx.send(AppMessage::BoardsForFindLoaded(project_key, result));
+        });
     }
 
     fn search_projects(&self) {
@@ -942,11 +1152,7 @@ impl App {
         });
     }
 
-    pub fn load_backlog(&self) {
-        let project = match self.projects.get(self.selected_project) {
-            Some(p) => p.clone(),
-            None => return,
-        };
+    fn load_backlog_for_tab(&self, tab_id: u64, project_key: String) {
         let tx = self.message_tx.clone();
         let client = self.http_client.clone();
         let email = self.config.auth.email.clone().unwrap_or_default();
@@ -957,13 +1163,61 @@ impl App {
             .base_url
             .clone()
             .unwrap_or_else(|| "https://jira.atlassian.net".into());
-        let project_key = project.key;
 
         tokio::spawn(async move {
             let provider = JiraProvider::new(client, base_url, email, token);
             let result = provider.get_backlog(&project_key).await;
-            let _ = tx.send(AppMessage::BacklogLoaded(result));
+            let _ = tx.send(AppMessage::BacklogLoaded(tab_id, result));
         });
+    }
+
+    pub fn load_all_list_tabs(&mut self) {
+        let tabs: Vec<(u64, String)> = self
+            .list_tabs
+            .iter_mut()
+            .map(|t| {
+                t.loading = true;
+                (t.id, t.project_key.clone())
+            })
+            .collect();
+        for (id, key) in tabs {
+            self.load_backlog_for_tab(id, key);
+        }
+    }
+
+    fn reload_all_list_tabs(&mut self) {
+        let tabs: Vec<(u64, String)> = self
+            .list_tabs
+            .iter_mut()
+            .map(|t| {
+                t.loading = true;
+                t.error = None;
+                (t.id, t.project_key.clone())
+            })
+            .collect();
+        for (id, key) in tabs {
+            self.load_backlog_for_tab(id, key);
+        }
+    }
+
+    #[allow(dead_code)]
+    fn add_list_tab(&mut self, project_key: String, project_name: String) {
+        let id = self.next_list_id;
+        self.next_list_id += 1;
+        self.list_tabs.push(ListTab {
+            id,
+            project_key: project_key.clone(),
+            project_name,
+            issues: Vec::new(),
+            loading: true,
+            error: None,
+            nav: TableNav::default(),
+            filter: None,
+            statuses: Vec::new(),
+        });
+        self.active_tab = Tab::List(id);
+        self.save_open_tabs();
+        self.load_backlog_for_tab(id, project_key);
     }
 
     fn add_favorite(&mut self, project: &FindProject) {
@@ -1139,9 +1393,9 @@ impl App {
                     if self.detail_scroll < self.detail_max_scroll {
                         self.detail_scroll = self.detail_scroll.saturating_add(2).min(self.detail_max_scroll);
                     }
-                } else if self.active_tab == Tab::Backlog {
+                } else if matches!(self.active_tab, Tab::List(_)) {
                     let count = self.filtered_backlog_count();
-                    self.backlog_nav.scroll_down(count);
+                    if let Some(tab) = self.active_list_tab_mut() { tab.nav.scroll_down(count); }
                 } else if let Tab::Board(id) = self.active_tab {
                     self.scroll_board_column(id, mouse.column, 3);
                 }
@@ -1153,20 +1407,20 @@ impl App {
                     .unwrap_or(false);
                 if in_detail {
                     self.detail_scroll = self.detail_scroll.saturating_sub(2);
-                } else if self.active_tab == Tab::Backlog {
-                    self.backlog_nav.scroll_up();
+                } else if matches!(self.active_tab, Tab::List(_)) {
+                    if let Some(tab) = self.active_list_tab_mut() { tab.nav.scroll_up(); }
                 } else if let Tab::Board(id) = self.active_tab {
                     self.scroll_board_column(id, mouse.column, -3);
                 }
                 return;
             }
-            MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
+            MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && matches!(self.active_tab, Tab::List(_)) => {
                 let count = self.filtered_backlog_count();
-                self.backlog_nav.scroll_down(count);
+                if let Some(tab) = self.active_list_tab_mut() { tab.nav.scroll_down(count); }
                 return;
             }
-            MouseEventKind::ScrollUp if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
-                self.backlog_nav.scroll_up();
+            MouseEventKind::ScrollUp if self.focus == FocusLayer::Main && matches!(self.active_tab, Tab::List(_)) => {
+                if let Some(tab) = self.active_list_tab_mut() { tab.nav.scroll_up(); }
                 return;
             }
             MouseEventKind::ScrollDown if self.focus == FocusLayer::Main => {
@@ -1255,13 +1509,12 @@ impl App {
                 }
             }
 
+            let all_tabs = self.all_tab_ids();
             let mut tab_clicked = false;
             for (area, idx) in &self.click_regions.header.tab_areas {
                 if hit(pos, Some(*area)) {
-                    if *idx == 0 {
-                        self.active_tab = Tab::Backlog;
-                    } else if let Some(bt) = self.board_tabs.get(*idx - 1) {
-                        self.active_tab = Tab::Board(bt.board_id);
+                    if let Some(tab) = all_tabs.get(*idx) {
+                        self.active_tab = tab.clone();
                     }
                     tab_clicked = true;
                     break;
@@ -1308,10 +1561,12 @@ impl App {
             }
 
             // Backlog row clicks
-            if self.active_tab == Tab::Backlog {
+            if matches!(self.active_tab, Tab::List(_)) {
                 for (i, area) in self.click_regions.backlog.row_areas.iter().enumerate() {
                     if hit(pos, Some(*area)) {
-                        self.backlog_nav.selected = Some(self.backlog_nav.offset + i);
+                        if let Some(tab) = self.active_list_tab_mut() {
+                            tab.nav.selected = Some(tab.nav.offset + i);
+                        }
                         self.open_detail_from_backlog();
                         return;
                     }
@@ -1319,15 +1574,21 @@ impl App {
             }
 
             // Backlog filter clicks
-            if self.active_tab == Tab::Backlog {
+            if matches!(self.active_tab, Tab::List(_)) {
+                let statuses: Vec<String> = self
+                    .active_list_tab()
+                    .map(|t| t.statuses.clone())
+                    .unwrap_or_default();
                 for (i, area) in self.click_regions.backlog.filter_areas.iter().enumerate() {
                     if hit(pos, Some(*area)) {
-                        if i == 0 {
-                            self.backlog_filter = None;
-                        } else if let Some(status) = self.backlog_statuses.get(i - 1) {
-                            self.backlog_filter = Some(status.clone());
+                        if let Some(tab) = self.active_list_tab_mut() {
+                            if i == 0 {
+                                tab.filter = None;
+                            } else if let Some(status) = statuses.get(i - 1) {
+                                tab.filter = Some(status.clone());
+                            }
+                            tab.nav.reset();
                         }
-                        self.backlog_nav.reset();
                         break;
                     }
                 }
@@ -1352,6 +1613,18 @@ impl App {
     }
 
     fn handle_find_mouse(&mut self, pos: (u16, u16)) {
+        // Panel clicks take priority when panel is open
+        if self.find_board_panel_open {
+            let panel_areas = self.click_regions.find_modal.panel_item_areas.clone();
+            for (i, area) in panel_areas.iter().enumerate() {
+                if hit(pos, Some(*area)) {
+                    self.find_panel_cursor = i;
+                    self.toggle_find_panel_item(i);
+                    return;
+                }
+            }
+        }
+
         for (i, area) in self.click_regions.find_modal.star_areas.iter().enumerate() {
             if hit(pos, Some(*area)) {
                 if let Some(project) = self.find_results.get(i).cloned() {
@@ -1369,15 +1642,7 @@ impl App {
             if hit(pos, Some(*area)) {
                 self.find_selected = i;
                 if let Some(project) = self.find_results.get(i).cloned() {
-                    self.add_favorite(&project);
-                    self.selected_project = self
-                        .projects
-                        .iter()
-                        .position(|p| p.key == project.key)
-                        .unwrap_or(0);
-                    self.find_modal_open = false;
-                    self.focus = FocusLayer::Main;
-                    self.on_project_changed();
+                    self.open_find_board_panel(project);
                 }
                 return;
             }
@@ -1446,15 +1711,20 @@ impl App {
     }
 
     fn open_detail_from_backlog(&mut self) {
-        let filtered: Vec<&JiraIssue> = self
-            .backlog_issues
+        let tab = match self.active_list_tab() {
+            Some(t) => t,
+            None => return,
+        };
+        let filtered: Vec<&JiraIssue> = tab
+            .issues
             .iter()
-            .filter(|issue| match &self.backlog_filter {
+            .filter(|issue| match &tab.filter {
                 None => true,
                 Some(f) => issue.fields.status.name == *f,
             })
             .collect();
-        if let Some(issue) = self.backlog_nav.selected.and_then(|i| filtered.get(i)) {
+        let selected = tab.nav.selected;
+        if let Some(issue) = selected.and_then(|i| filtered.get(i)) {
             let issue = (*issue).clone();
             self.open_detail_for_issue(&issue);
         }
@@ -1562,18 +1832,57 @@ impl App {
     }
 
     fn on_project_changed(&mut self) {
+        let project = match self.projects.get(self.selected_project) {
+            Some(p) => p.clone(),
+            None => return,
+        };
+
         self.column_order.clear();
-        self.backlog_filter = None;
-        self.backlog_loading = true;
-        self.backlog_nav.reset();
+        self.board_tabs.clear();
+
+        // Replace list tabs with a single fresh one for the new project
+        let id = self.next_list_id;
+        self.next_list_id += 1;
+        self.list_tabs = vec![ListTab {
+            id,
+            project_key: project.key.clone(),
+            project_name: project.name.clone(),
+            issues: Vec::new(),
+            loading: true,
+            error: None,
+            nav: TableNav::default(),
+            filter: None,
+            statuses: Vec::new(),
+        }];
+        self.active_tab = Tab::List(id);
+        self.save_open_tabs();
         self.load_column_order();
-        self.load_backlog();
+        self.load_backlog_for_tab(id, project.key);
+    }
+
+    fn active_list_tab(&self) -> Option<&ListTab> {
+        if let Tab::List(id) = self.active_tab {
+            self.list_tabs.iter().find(|t| t.id == id)
+        } else {
+            None
+        }
+    }
+
+    fn active_list_tab_mut(&mut self) -> Option<&mut ListTab> {
+        if let Tab::List(id) = self.active_tab {
+            self.list_tabs.iter_mut().find(|t| t.id == id)
+        } else {
+            None
+        }
     }
 
     fn filtered_backlog_count(&self) -> usize {
-        match &self.backlog_filter {
-            None => self.backlog_issues.len(),
-            Some(f) => self.backlog_issues.iter().filter(|i| i.fields.status.name == *f).count(),
+        match self.active_list_tab() {
+            Some(tab) => match &tab.filter {
+                None => tab.issues.len(),
+                Some(f) => tab.issues.iter().filter(|i| i.fields.status.name == *f).count(),
+            },
+            None => 0,
         }
     }
 
@@ -1642,7 +1951,7 @@ impl App {
     }
 
     fn all_tab_ids(&self) -> Vec<Tab> {
-        let mut tabs = vec![Tab::Backlog];
+        let mut tabs: Vec<Tab> = self.list_tabs.iter().map(|t| Tab::List(t.id)).collect();
         for bt in &self.board_tabs {
             tabs.push(Tab::Board(bt.board_id));
         }
@@ -1650,14 +1959,20 @@ impl App {
     }
 
     fn refresh_active_tab(&mut self) {
-        match &self.active_tab {
-            Tab::Backlog => {
-                self.backlog_loading = true;
-                self.backlog_error = None;
-                self.load_backlog();
+        match self.active_tab {
+            Tab::List(id) => {
+                let project_key = match self.list_tabs.iter_mut().find(|t| t.id == id) {
+                    Some(tab) => {
+                        tab.loading = true;
+                        tab.error = None;
+                        tab.project_key.clone()
+                    }
+                    None => return,
+                };
+                self.load_backlog_for_tab(id, project_key);
             }
             Tab::Board(id) => {
-                let board_id = *id;
+                let board_id = id;
                 if let Some(tab) = self.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
                     tab.loading = true;
                     tab.error = None;
@@ -1667,12 +1982,30 @@ impl App {
         }
     }
 
-    fn close_active_board_tab(&mut self) {
-        if let Tab::Board(id) = &self.active_tab {
-            let board_id = *id;
-            self.board_tabs.retain(|t| t.board_id != board_id);
-            self.active_tab = Tab::Backlog;
-            self.save_open_boards();
+    fn close_active_tab(&mut self) {
+        match self.active_tab {
+            Tab::List(id) => {
+                // Don't close if it's the only list tab
+                if self.list_tabs.len() <= 1 {
+                    return;
+                }
+                let pos = self.list_tabs.iter().position(|t| t.id == id).unwrap_or(0);
+                self.list_tabs.retain(|t| t.id != id);
+                let new_tab = if pos > 0 {
+                    self.list_tabs.get(pos - 1).map(|t| Tab::List(t.id))
+                } else {
+                    self.list_tabs.first().map(|t| Tab::List(t.id))
+                };
+                self.active_tab = new_tab.unwrap_or_else(|| Tab::Board(0));
+                self.save_open_tabs();
+            }
+            Tab::Board(id) => {
+                let board_id = id;
+                self.board_tabs.retain(|t| t.board_id != board_id);
+                let fallback = self.list_tabs.first().map(|t| Tab::List(t.id));
+                self.active_tab = fallback.unwrap_or(Tab::Board(0));
+                self.save_open_tabs();
+            }
         }
     }
 
@@ -1727,20 +2060,30 @@ impl App {
         };
         self.board_tabs.push(tab);
         self.active_tab = Tab::Board(board.id);
-        self.save_open_boards();
+        self.save_open_tabs();
         self.load_board_data(board.id);
     }
 
-    fn save_open_boards(&self) {
+    fn save_open_tabs(&self) {
         let project_key = self
             .projects
             .get(self.selected_project)
             .map(|p| p.key.clone())
             .unwrap_or_default();
         let mut config = self.config.clone();
-        config.jira.open_boards.retain(|b| b.project_key != project_key);
+        config.jira.open_tabs.retain(|t| match t {
+            OpenTab::List { project_key: pk, .. } => pk != &project_key,
+            OpenTab::Board { project_key: pk, .. } => pk != &project_key,
+        });
+        for lt in &self.list_tabs {
+            config.jira.open_tabs.push(OpenTab::List {
+                project_key: project_key.clone(),
+                project_name: lt.project_name.clone(),
+                id: lt.id,
+            });
+        }
         for bt in &self.board_tabs {
-            config.jira.open_boards.push(OpenBoard {
+            config.jira.open_tabs.push(OpenTab::Board {
                 project_key: project_key.clone(),
                 board_id: bt.board_id,
                 board_name: bt.board_name.clone(),
