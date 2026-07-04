@@ -227,7 +227,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 if name.contains("highest") || name.contains("critical") || name.contains("blocker") {
                     Some(("!!", t.error))
                 } else if name.contains("high") {
-                    Some(("! ", t.warning))
+                    Some(("!", t.warning))
                 } else {
                     None
                 }
