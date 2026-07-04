@@ -228,16 +228,27 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         chunks[1],
     );
 
-    // Description or placeholder
+    // Split content into description (left) and metadata (right)
+    let content_area = chunks[2];
+    let meta_width = 28u16;
+    let content_splits = Layout::horizontal([
+        Constraint::Min(20),
+        Constraint::Length(meta_width),
+    ])
+    .split(content_area);
+
+    let desc_area = content_splits[0];
+    let meta_area = content_splits[1];
+
+    // Description
     let desc = if let Some(ref desc) = app.detail_description {
         desc.clone()
     } else {
         "No description".into()
     };
 
-    // Calculate max scroll: count wrapped lines vs visible height
-    let desc_area_height = chunks[2].height;
-    let desc_area_width = chunks[2].width as usize;
+    let desc_area_height = desc_area.height;
+    let desc_area_width = desc_area.width as usize;
     let total_lines: u16 = desc
         .lines()
         .map(|line| {
@@ -254,7 +265,10 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .style(Style::default().fg(t.text))
         .wrap(Wrap { trim: false })
         .scroll((app.detail_scroll, 0));
-    frame.render_widget(desc_widget, chunks[2]);
+    frame.render_widget(desc_widget, desc_area);
+
+    // Metadata panel
+    render_metadata(frame, app, t, &issue, meta_area);
 
     // Transition dropdown (rendered last to overlay everything)
     if app.detail_transition_open {
@@ -302,4 +316,103 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(list, dropdown_area);
         }
     }
+}
+
+use crate::provider::types::JiraIssue;
+use crate::theme::Theme;
+
+fn render_metadata(frame: &mut Frame, app: &App, t: &Theme, issue: &JiraIssue, area: Rect) {
+    let mut lines: Vec<Line> = Vec::new();
+
+    let label_style = Style::default().fg(t.text_dim);
+    let value_style = Style::default().fg(t.text);
+
+    // Assignee
+    let assignee = issue
+        .fields
+        .assignee
+        .as_ref()
+        .map(|a| a.display_name.as_str())
+        .unwrap_or("-");
+    lines.push(Line::from(Span::styled("Assignee", label_style)));
+    lines.push(Line::from(Span::styled(assignee, Style::default().fg(t.warning))));
+    lines.push(Line::from(""));
+
+    // Reporter
+    if let Some(ref meta) = app.detail_metadata {
+        if let Some(ref reporter) = meta.reporter {
+            lines.push(Line::from(Span::styled("Reporter", label_style)));
+            lines.push(Line::from(Span::styled(reporter.as_str(), value_style)));
+            lines.push(Line::from(""));
+        }
+    }
+
+    // Parent/Epic
+    if let Some(ref parent) = issue.fields.parent {
+        let epic_name = parent
+            .fields
+            .as_ref()
+            .map(|f| f.summary.as_str())
+            .unwrap_or(&parent.key);
+        lines.push(Line::from(Span::styled("Parent", label_style)));
+        lines.push(Line::from(vec![
+            Span::styled(&parent.key, Style::default().fg(t.accent)),
+            Span::styled(" ", Style::default()),
+            Span::styled(epic_name, value_style),
+        ]));
+        lines.push(Line::from(""));
+    }
+
+    // Labels
+    if let Some(ref meta) = app.detail_metadata {
+        if !meta.labels.is_empty() {
+            lines.push(Line::from(Span::styled("Labels", label_style)));
+            lines.push(Line::from(Span::styled(
+                meta.labels.join(", "),
+                value_style,
+            )));
+            lines.push(Line::from(""));
+        }
+    }
+
+    // Priority
+    if let Some(ref priority) = issue.fields.priority {
+        lines.push(Line::from(Span::styled("Priority", label_style)));
+        lines.push(Line::from(Span::styled(&priority.name, value_style)));
+        lines.push(Line::from(""));
+    }
+
+    // Type
+    lines.push(Line::from(Span::styled("Type", label_style)));
+    lines.push(Line::from(Span::styled(&issue.fields.issue_type.name, value_style)));
+    lines.push(Line::from(""));
+
+    // Dates
+    if let Some(ref meta) = app.detail_metadata {
+        if let Some(ref created) = meta.created {
+            let date = if created.len() >= 10 { &created[..10] } else { created };
+            lines.push(Line::from(Span::styled("Created", label_style)));
+            lines.push(Line::from(Span::styled(date, value_style)));
+            lines.push(Line::from(""));
+        }
+        if let Some(ref start) = meta.start_date {
+            lines.push(Line::from(Span::styled("Start date", label_style)));
+            lines.push(Line::from(Span::styled(start.as_str(), value_style)));
+            lines.push(Line::from(""));
+        }
+        if let Some(ref due) = meta.due_date {
+            lines.push(Line::from(Span::styled("Due date", label_style)));
+            lines.push(Line::from(Span::styled(due.as_str(), value_style)));
+            lines.push(Line::from(""));
+        }
+    }
+
+    let block = Block::default()
+        .borders(Borders::LEFT)
+        .border_style(Style::default().fg(t.border));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let meta_widget = Paragraph::new(lines).wrap(Wrap { trim: false });
+    frame.render_widget(meta_widget, inner);
 }

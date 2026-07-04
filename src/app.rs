@@ -7,7 +7,7 @@ use crate::config;
 use crate::config::types::{AppConfig, FavoriteProject, OpenBoard};
 use crate::event::{AppEvent, AppMessage};
 use crate::provider::jira::JiraProvider;
-use crate::provider::types::{JiraBoard, JiraIssue, JiraTransition};
+use crate::provider::types::{IssueMetadata, JiraBoard, JiraIssue, JiraTransition};
 use crate::table_nav::TableNav;
 use crate::theme::{self, Theme};
 use crate::ui::click_regions::ClickRegions;
@@ -96,6 +96,7 @@ pub struct App {
     pub detail_open: bool,
     pub detail_issue: Option<JiraIssue>,
     pub detail_description: Option<String>,
+    pub detail_metadata: Option<IssueMetadata>,
     pub detail_height: u16,
     pub detail_scroll: u16,
     pub detail_max_scroll: u16,
@@ -226,6 +227,7 @@ impl App {
             detail_open: false,
             detail_issue: None,
             detail_description: None,
+            detail_metadata: None,
             detail_height: 0,
             detail_scroll: 0,
             detail_max_scroll: 0,
@@ -351,9 +353,10 @@ impl App {
                     });
                 }
             }
-            AppMessage::IssueDetailLoaded(key, Ok(desc)) => {
+            AppMessage::IssueDetailLoaded(key, Ok((desc, metadata))) => {
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_description = Some(desc);
+                    self.detail_metadata = Some(metadata);
                 }
             }
             AppMessage::IssueDetailLoaded(_, Err(_)) => {}
@@ -1271,6 +1274,7 @@ impl App {
         let key = issue.key.clone();
         self.detail_issue = Some(issue.clone());
         self.detail_description = None;
+        self.detail_metadata = None;
         self.detail_open = true;
         self.detail_height = 0;
         self.detail_scroll = 0;
@@ -1295,8 +1299,8 @@ impl App {
 
         tokio::spawn(async move {
             let provider = JiraProvider::new(client, base_url, email, token);
-            let desc = provider.get_issue_description(&key).await;
-            let _ = tx.send(AppMessage::IssueDetailLoaded(key.clone(), desc));
+            let detail = provider.get_issue_detail(&key).await;
+            let _ = tx.send(AppMessage::IssueDetailLoaded(key.clone(), detail));
             let transitions = provider.get_transitions(&key).await;
             let _ = tx.send(AppMessage::TransitionsLoaded(key, transitions));
         });

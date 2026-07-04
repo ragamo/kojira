@@ -2,9 +2,9 @@ use reqwest::Client;
 use thiserror::Error;
 
 use super::types::{
-    JiraBoard, JiraBoardConfig, JiraBoardIssuesResponse, JiraBoardListResponse, JiraIssue,
-    JiraIssueDetailResponse, JiraProject, JiraProjectSearchResponse, JiraSearchResponse,
-    JiraTransition, JiraTransitionsResponse, JiraUser,
+    IssueMetadata, JiraBoard, JiraBoardConfig, JiraBoardIssuesResponse, JiraBoardListResponse,
+    JiraIssue, JiraIssueDetailResponse, JiraProject, JiraProjectSearchResponse,
+    JiraSearchResponse, JiraTransition, JiraTransitionsResponse, JiraUser,
 };
 
 #[derive(Debug, Error)]
@@ -157,13 +157,13 @@ impl JiraProvider {
         Ok(all_issues)
     }
 
-    pub async fn get_issue_description(&self, issue_key: &str) -> Result<String, JiraError> {
+    pub async fn get_issue_detail(&self, issue_key: &str) -> Result<(String, IssueMetadata), JiraError> {
         let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key);
         let resp = self
             .client
             .get(&url)
             .basic_auth(&self.email, Some(&self.token))
-            .query(&[("fields", "description")])
+            .query(&[("fields", "description,reporter,labels,created,customfield_10015,duedate")])
             .send()
             .await?;
 
@@ -177,7 +177,14 @@ impl JiraProvider {
             .description
             .map(|d| adf_to_text(&d))
             .unwrap_or_default();
-        Ok(description)
+        let metadata = IssueMetadata {
+            reporter: data.fields.reporter.map(|u| u.display_name),
+            labels: data.fields.labels,
+            created: data.fields.created,
+            start_date: data.fields.start_date,
+            due_date: data.fields.due_date,
+        };
+        Ok((description, metadata))
     }
 
     pub async fn get_transitions(&self, issue_key: &str) -> Result<Vec<JiraTransition>, JiraError> {

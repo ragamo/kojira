@@ -41,7 +41,6 @@ pub struct JiraIssueFields {
     pub status: JiraStatus,
     #[serde(rename = "issuetype")]
     pub issue_type: JiraIssueType,
-    #[allow(dead_code)]
     pub priority: Option<JiraPriority>,
     pub assignee: Option<JiraUser>,
     pub parent: Option<JiraParentField>,
@@ -69,7 +68,6 @@ pub struct JiraIssueType {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct JiraPriority {
-    #[allow(dead_code)]
     pub name: String,
 }
 
@@ -111,6 +109,23 @@ pub struct JiraIssueDetailResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct JiraIssueDetailFields {
     pub description: Option<serde_json::Value>,
+    pub reporter: Option<JiraUser>,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    pub created: Option<String>,
+    #[serde(rename = "customfield_10015")]
+    pub start_date: Option<String>,
+    #[serde(rename = "duedate")]
+    pub due_date: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IssueMetadata {
+    pub reporter: Option<String>,
+    pub labels: Vec<String>,
+    pub created: Option<String>,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
 }
 
 // Agile API types
