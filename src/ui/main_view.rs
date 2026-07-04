@@ -10,25 +10,37 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
     .split(area);
 
     render_header(frame, app, chunks[0]);
-    render_tabs(frame, app, chunks[1]);
+    // separator: ▄ row — top half = header bg, bottom half = tab bar bg
+    let t = app.theme;
+    let header_bg = if app.header_bg_soft { t.bg } else { t.header_bg };
+    let sep_area = chunks[1];
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "▄".repeat(sep_area.width as usize),
+            Style::default().fg(t.header_bg).bg(header_bg),
+        )),
+        sep_area,
+    );
+    render_tabs(frame, app, chunks[2]);
 
     if app.detail_open {
         if app.detail_height == 0 {
-            app.detail_height = (chunks[2].height * 70 / 100).max(10);
+            app.detail_height = (chunks[3].height * 70 / 100).max(10);
         }
-        let detail_h = app.detail_height.min(chunks[2].height.saturating_sub(4));
-        let content_h = chunks[2].height.saturating_sub(detail_h);
+        let detail_h = app.detail_height.min(chunks[3].height.saturating_sub(4));
+        let content_h = chunks[3].height.saturating_sub(detail_h);
         let splits = Layout::vertical([
             Constraint::Length(content_h),
             Constraint::Length(detail_h),
         ])
-        .split(chunks[2]);
+        .split(chunks[3]);
         render_content(frame, app, splits[0]);
         crate::ui::detail_panel::render(frame, app, splits[1]);
         // Extend resize area to cover bottom border of content + top border of panel
@@ -41,10 +53,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         });
     } else {
         app.detail_height = 0;
-        render_content(frame, app, chunks[2]);
+        render_content(frame, app, chunks[3]);
     }
 
-    render_footer(frame, app.theme, chunks[3]);
+    render_footer(frame, app.theme, chunks[4]);
 
 }
 
@@ -55,58 +67,56 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     let bg_block = Block::default().style(Style::default().bg(header_bg));
     frame.render_widget(bg_block, area);
 
-    // Left side: "kojira | author  logout"
-    let left_text = if app.logged_in {
+    // Left: " kojira │ settings"
+    let settings_label = " settings";
+    let settings_w = settings_label.len() as u16;
+    let left_line = Line::from(vec![
+        Span::styled(" kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(" │", Style::default().fg(t.text_dim)),
+        Span::styled(settings_label, Style::default().fg(t.text_dim)),
+    ]);
+    frame.render_widget(Paragraph::new(left_line), area);
+
+    // Right: "@author  logout" or "login"
+    let right_line = if app.logged_in {
         let name = app
             .user_display_name
             .as_deref()
             .or(app.user_email.as_deref())
             .unwrap_or("user");
         Line::from(vec![
-            Span::styled(" kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
-            Span::styled(" │ ", Style::default().fg(t.text_dim)),
-            Span::styled(name, Style::default().fg(t.success)),
-            Span::styled("  logout", Style::default().fg(t.text_dim)),
+            Span::styled(format!("@{}", name), Style::default().fg(t.success)),
+            Span::styled("  logout ", Style::default().fg(t.text_dim)),
         ])
     } else {
         Line::from(vec![
-            Span::styled(" kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
-            Span::styled(" │ ", Style::default().fg(t.text_dim)),
-            Span::styled("login", Style::default().fg(t.text_dim)),
+            Span::styled("login ", Style::default().fg(t.text_dim)),
         ])
     };
-    frame.render_widget(Paragraph::new(left_text), area);
-
-    // Right side: "settings "
-    let settings_label = "settings ";
-    let settings_w = settings_label.len() as u16;
-    frame.render_widget(
-        Paragraph::new(Span::styled(settings_label, Style::default().fg(t.text_dim)))
-            .alignment(Alignment::Right),
-        area,
-    );
+    frame.render_widget(Paragraph::new(right_line).alignment(Alignment::Right), area);
 
     // Click regions
-    let settings_area = Rect {
-        x: area.x + area.width.saturating_sub(settings_w),
+    // "settings" starts at x = len(" kojira │") = 9
+    let settings_x = area.x + 9;
+    app.click_regions.header.settings_link = Some(Rect {
+        x: settings_x,
         y: area.y,
-        width: settings_w,
+        width: settings_w as u16,
         height: 1,
-    };
-    app.click_regions.header.settings_link = Some(settings_area);
+    });
 
     if app.logged_in {
-        let logout_w = 6u16; // "logout"
+        let logout_w = 7u16; // "logout "
         app.click_regions.header.logout_link = Some(Rect {
-            x: area.x + area.width.saturating_sub(settings_w + 2 + logout_w),
+            x: area.x + area.width.saturating_sub(logout_w),
             y: area.y,
             width: logout_w,
             height: 1,
         });
     } else {
-        let login_w = 5u16; // "login"
+        let login_w = 6u16; // "login "
         app.click_regions.header.login_link = Some(Rect {
-            x: area.x + area.width.saturating_sub(settings_w + 2 + login_w),
+            x: area.x + area.width.saturating_sub(login_w),
             y: area.y,
             width: login_w,
             height: 1,
