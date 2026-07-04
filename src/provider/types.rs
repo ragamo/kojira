@@ -102,6 +102,19 @@ pub struct JiraTransitionTo {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct JiraComment {
+    pub author: JiraUser,
+    pub body: Option<serde_json::Value>,
+    pub created: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JiraCommentsResponse {
+    #[serde(default)]
+    pub comments: Vec<JiraComment>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct JiraIssueDetailResponse {
     pub fields: JiraIssueDetailFields,
 }

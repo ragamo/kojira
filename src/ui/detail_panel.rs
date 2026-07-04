@@ -28,6 +28,28 @@ fn epic_color(name: &str) -> Color {
     Color::Rgb(r, g, b)
 }
 
+const AUTHOR_COLORS: &[(u8, u8, u8)] = &[
+    (97, 175, 239),
+    (229, 192, 123),
+    (152, 195, 121),
+    (224, 108, 117),
+    (198, 120, 221),
+    (86, 182, 194),
+    (255, 121, 198),
+    (189, 147, 249),
+    (241, 250, 140),
+    (139, 233, 253),
+    (255, 183, 77),
+    (128, 203, 196),
+];
+
+fn color_for_author(name: &str) -> Color {
+    let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let idx = (hash as usize) % AUTHOR_COLORS.len();
+    let (r, g, b) = AUTHOR_COLORS[idx];
+    Color::Rgb(r, g, b)
+}
+
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let issue = match &app.detail_issue {
         Some(i) => i.clone(),
@@ -266,47 +288,80 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let meta_area = content_splits[1];
 
     // Tab content
-    let content_text = match app.detail_tab {
+    let content_lines: Vec<Line> = match app.detail_tab {
         0 => {
-            // Overview: description
-            if let Some(ref desc) = app.detail_description {
+            let text = if let Some(ref desc) = app.detail_description {
                 desc.clone()
             } else {
                 "Loading...".into()
+            };
+            text.lines()
+                .map(|l| Line::from(Span::styled(l.to_string(), Style::default().fg(t.text))))
+                .collect()
+        }
+        1 => {
+            if app.detail_comments.is_empty() {
+                vec![Line::from(Span::styled("No comments", Style::default().fg(t.text_dim)))]
+            } else {
+                let mut lines = Vec::new();
+                for (idx, c) in app.detail_comments.iter().enumerate() {
+                    let date = if c.created.len() >= 10 { &c.created[..10] } else { &c.created };
+                    let author_color = color_for_author(&c.author.display_name);
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("@{}", c.author.display_name),
+                            Style::default().fg(author_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(format!("  {}", date), Style::default().fg(t.text_dim)),
+                    ]));
+                    let body = c
+                        .body
+                        .as_ref()
+                        .map(|b| crate::provider::jira::adf_to_text(b))
+                        .unwrap_or_default();
+                    for line in body.lines() {
+                        lines.push(Line::from(Span::styled(
+                            line.to_string(),
+                            Style::default().fg(t.text),
+                        )));
+                    }
+                    if idx < app.detail_comments.len() - 1 {
+                        lines.push(Line::from(""));
+                    }
+                }
+                lines
             }
         }
-        1 => "Comments not yet implemented".into(),
-        2 => "History not yet implemented".into(),
+        2 => vec![Line::from(Span::styled(
+            "History not yet implemented",
+            Style::default().fg(t.text_dim),
+        ))],
         3 => {
-            // Transitions list
             if app.detail_transitions.is_empty() {
-                "No transitions available".into()
+                vec![Line::from(Span::styled(
+                    "No transitions available",
+                    Style::default().fg(t.text_dim),
+                ))]
             } else {
                 app.detail_transitions
                     .iter()
-                    .map(|tr| format!("  → {}", tr.name))
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                    .map(|tr| {
+                        Line::from(vec![
+                            Span::styled("  → ", Style::default().fg(t.accent)),
+                            Span::styled(&tr.name, Style::default().fg(t.text)),
+                        ])
+                    })
+                    .collect()
             }
         }
-        _ => String::new(),
+        _ => Vec::new(),
     };
 
     let desc_area_height = desc_area.height;
-    let desc_area_width = desc_area.width as usize;
-    let total_lines: u16 = content_text
-        .lines()
-        .map(|line| {
-            if line.is_empty() {
-                1u16
-            } else {
-                ((line.chars().count() as u16).saturating_sub(1) / desc_area_width.max(1) as u16) + 1
-            }
-        })
-        .sum();
-    app.detail_max_scroll = total_lines.saturating_sub(desc_area_height);
+    let total_lines_count = content_lines.len() as u16;
+    app.detail_max_scroll = total_lines_count.saturating_sub(desc_area_height);
 
-    let content_widget = Paragraph::new(content_text)
+    let content_widget = Paragraph::new(content_lines)
         .style(Style::default().fg(t.text))
         .wrap(Wrap { trim: false })
         .scroll((app.detail_scroll, 0));

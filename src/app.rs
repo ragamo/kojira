@@ -7,7 +7,7 @@ use crate::config;
 use crate::config::types::{AppConfig, FavoriteProject, OpenBoard};
 use crate::event::{AppEvent, AppMessage};
 use crate::provider::jira::JiraProvider;
-use crate::provider::types::{IssueMetadata, JiraBoard, JiraIssue, JiraTransition};
+use crate::provider::types::{IssueMetadata, JiraBoard, JiraComment, JiraIssue, JiraTransition};
 use crate::table_nav::TableNav;
 use crate::theme::{self, Theme};
 use crate::ui::click_regions::ClickRegions;
@@ -98,6 +98,7 @@ pub struct App {
     pub detail_tab_areas: Vec<Rect>,
     pub detail_issue: Option<JiraIssue>,
     pub detail_description: Option<String>,
+    pub detail_comments: Vec<JiraComment>,
     pub detail_metadata: Option<IssueMetadata>,
     pub detail_height: u16,
     pub detail_scroll: u16,
@@ -231,6 +232,7 @@ impl App {
             detail_tab_areas: Vec::new(),
             detail_issue: None,
             detail_description: None,
+            detail_comments: Vec::new(),
             detail_metadata: None,
             detail_height: 0,
             detail_scroll: 0,
@@ -370,6 +372,12 @@ impl App {
                 }
             }
             AppMessage::TransitionsLoaded(_, Err(_)) => {}
+            AppMessage::CommentsLoaded(key, Ok(comments)) => {
+                if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
+                    self.detail_comments = comments;
+                }
+            }
+            AppMessage::CommentsLoaded(_, Err(_)) => {}
             AppMessage::TransitionDone(key, Ok(())) => {
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_transition_open = false;
@@ -1293,6 +1301,7 @@ impl App {
         let key = issue.key.clone();
         self.detail_issue = Some(issue.clone());
         self.detail_description = None;
+        self.detail_comments.clear();
         self.detail_metadata = None;
         self.detail_open = true;
         self.detail_tab = 0;
@@ -1322,7 +1331,9 @@ impl App {
             let detail = provider.get_issue_detail(&key).await;
             let _ = tx.send(AppMessage::IssueDetailLoaded(key.clone(), detail));
             let transitions = provider.get_transitions(&key).await;
-            let _ = tx.send(AppMessage::TransitionsLoaded(key, transitions));
+            let _ = tx.send(AppMessage::TransitionsLoaded(key.clone(), transitions));
+            let comments = provider.get_comments(&key).await;
+            let _ = tx.send(AppMessage::CommentsLoaded(key, comments));
         });
     }
 

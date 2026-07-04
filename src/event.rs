@@ -14,7 +14,7 @@ pub enum AppEvent {
 }
 
 use crate::provider::jira::JiraError;
-use crate::provider::types::{IssueMetadata, JiraBoard, JiraBoardConfig, JiraIssue, JiraProject, JiraTransition, JiraUser};
+use crate::provider::types::{IssueMetadata, JiraBoard, JiraBoardConfig, JiraComment, JiraIssue, JiraProject, JiraTransition, JiraUser};
 
 pub enum AppMessage {
     TokenValidated(Result<JiraUser, JiraError>),
@@ -25,6 +25,7 @@ pub enum AppMessage {
     ColumnOrderLoaded(Result<Vec<String>, JiraError>),
     IssueDetailLoaded(String, Result<(String, IssueMetadata), JiraError>),
     TransitionsLoaded(String, Result<Vec<JiraTransition>, JiraError>),
+    CommentsLoaded(String, Result<Vec<JiraComment>, JiraError>),
     TransitionDone(String, Result<(), JiraError>),
 }
 

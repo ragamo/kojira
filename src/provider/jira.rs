@@ -3,8 +3,9 @@ use thiserror::Error;
 
 use super::types::{
     IssueMetadata, JiraBoard, JiraBoardConfig, JiraBoardIssuesResponse, JiraBoardListResponse,
-    JiraIssue, JiraIssueDetailResponse, JiraProject, JiraProjectSearchResponse,
-    JiraSearchResponse, JiraTransition, JiraTransitionsResponse, JiraUser,
+    JiraComment, JiraCommentsResponse, JiraIssue, JiraIssueDetailResponse, JiraProject,
+    JiraProjectSearchResponse, JiraSearchResponse, JiraTransition, JiraTransitionsResponse,
+    JiraUser,
 };
 
 #[derive(Debug, Error)]
@@ -187,6 +188,24 @@ impl JiraProvider {
         Ok((description, metadata))
     }
 
+    pub async fn get_comments(&self, issue_key: &str) -> Result<Vec<JiraComment>, JiraError> {
+        let url = format!("{}/rest/api/3/issue/{}/comment", self.base_url, issue_key);
+        let resp = self
+            .client
+            .get(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .query(&[("orderBy", "-created")])
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(JiraError::Auth(format!("HTTP {}", resp.status())));
+        }
+
+        let data: JiraCommentsResponse = resp.json().await?;
+        Ok(data.comments)
+    }
+
     pub async fn get_transitions(&self, issue_key: &str) -> Result<Vec<JiraTransition>, JiraError> {
         let url = format!("{}/rest/api/3/issue/{}/transitions", self.base_url, issue_key);
         let resp = self
@@ -244,7 +263,7 @@ impl JiraProvider {
     }
 }
 
-fn adf_to_text(value: &serde_json::Value) -> String {
+pub fn adf_to_text(value: &serde_json::Value) -> String {
     let mut result = String::new();
     adf_walk(value, &mut result);
     result
