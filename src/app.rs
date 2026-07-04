@@ -1059,6 +1059,9 @@ impl App {
     }
 
     fn open_create_modal(&mut self) {
+        if !self.logged_in {
+            return;
+        }
         self.detail_open = false;
         self.detail_issue = None;
         self.create_modal_open = true;
