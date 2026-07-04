@@ -206,42 +206,6 @@ impl JiraProvider {
         Ok(data.comments)
     }
 
-    pub async fn update_description(&self, issue_key: &str, text: &str) -> Result<(), JiraError> {
-        let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key);
-        // Wrap plain text in a minimal ADF document
-        let body = serde_json::json!({
-            "fields": {
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": text.lines().map(|line| {
-                        if line.is_empty() {
-                            serde_json::json!({ "type": "paragraph", "content": [] })
-                        } else {
-                            serde_json::json!({
-                                "type": "paragraph",
-                                "content": [{ "type": "text", "text": line }]
-                            })
-                        }
-                    }).collect::<Vec<_>>()
-                }
-            }
-        });
-        let resp = self
-            .client
-            .put(&url)
-            .basic_auth(&self.email, Some(&self.token))
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(JiraError::Auth(format!("HTTP {}: {}", status, &text[..text.len().min(200)])));
-        }
-        Ok(())
-    }
 
     pub async fn update_issue_fields(&self, issue_key: &str, fields: serde_json::Value) -> Result<(), JiraError> {
         let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key);

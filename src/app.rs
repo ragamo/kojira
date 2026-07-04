@@ -2479,25 +2479,6 @@ impl App {
         });
     }
 
-    pub fn save_description(&self, issue_key: &str, text: String) {
-        let tx = self.message_tx.clone();
-        let client = self.http_client.clone();
-        let email = self.config.auth.email.clone().unwrap_or_default();
-        let token = self.config.auth.token.clone().unwrap_or_default();
-        let base_url = self
-            .config
-            .jira
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://jira.atlassian.net".into());
-        let key = issue_key.to_string();
-
-        tokio::spawn(async move {
-            let provider = JiraProvider::new(client, base_url, email, token);
-            let result = provider.update_description(&key, &text).await;
-            let _ = tx.send(AppMessage::DescriptionUpdated(key, result));
-        });
-    }
 
     fn handle_editor_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
