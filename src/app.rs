@@ -89,6 +89,7 @@ pub struct CreateModalState {
     pub list_scroll: usize,
     pub loading_assignees: bool,
     pub loading_epics: bool,
+    pub saving: bool,
     pub error: Option<String>,
 }
 
@@ -111,6 +112,7 @@ impl Default for CreateModalState {
             list_scroll: 0,
             loading_assignees: false,
             loading_epics: false,
+            saving: false,
             error: None,
         }
     }
@@ -761,6 +763,7 @@ impl App {
                 self.reload_active_tab();
             }
             AppMessage::IssueCreated(Err(e)) => {
+                self.create_modal.saving = false;
                 self.create_modal.error = Some(e.to_string());
             }
             AppMessage::ColumnOrderLoaded(Err(_)) => {}
@@ -1097,6 +1100,9 @@ impl App {
     }
 
     fn submit_create_issue(&mut self) {
+        if self.create_modal.saving {
+            return;
+        }
         let project_key = match self.active_project_key() {
             Some(k) => k,
             None => return,
@@ -1106,6 +1112,8 @@ impl App {
             self.create_modal.error = Some("Title is required".into());
             return;
         }
+        self.create_modal.saving = true;
+        self.create_modal.error = None;
         let description = self.create_modal.description_editor.to_text();
         let assignee_id = self
             .create_modal
@@ -1148,6 +1156,10 @@ impl App {
 
     fn handle_create_key(&mut self, key: KeyEvent) {
         use crossterm::event::KeyCode;
+
+        if self.create_modal.saving {
+            return;
+        }
 
         // Ctrl+S to submit
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {

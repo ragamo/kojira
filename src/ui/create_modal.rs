@@ -210,17 +210,44 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    // Saving overlay
+    if app.create_modal.saving {
+        let overlay = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: inner.height,
+        };
+        frame.render_widget(Clear, overlay);
+        let saving_text = Paragraph::new(Line::from(vec![
+            Span::styled("◐ ", Style::default().fg(t.accent)),
+            Span::styled("Saving...", Style::default().fg(t.text)),
+        ]))
+        .alignment(Alignment::Center)
+        .style(Style::default().bg(t.bg));
+        let center_y = inner.y + inner.height / 2;
+        let saving_area = Rect { x: inner.x, y: center_y, width: inner.width, height: 1 };
+        frame.render_widget(saving_text, saving_area);
+    }
+
     // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Tab", Style::default().fg(t.accent)),
-        Span::styled(" navigate  ", Style::default().fg(t.text_dim)),
-        Span::styled(" ↵ select ", Style::default().fg(t.bg).bg(t.accent)),
-        Span::raw(" "),
-        Span::styled(" Ctrl+S save ", Style::default().fg(t.bg).bg(t.accent)),
-        Span::raw(" "),
-        Span::styled(" esc close ", Style::default().fg(t.text).bg(t.border)),
-    ]))
-    .alignment(Alignment::Center);
+    let footer = if app.create_modal.saving {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" saving... ", Style::default().fg(t.text_dim)),
+        ]))
+        .alignment(Alignment::Center)
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Tab", Style::default().fg(t.accent)),
+            Span::styled(" navigate  ", Style::default().fg(t.text_dim)),
+            Span::styled(" ↵ select ", Style::default().fg(t.bg).bg(t.accent)),
+            Span::raw(" "),
+            Span::styled(" Ctrl+S save ", Style::default().fg(t.bg).bg(t.accent)),
+            Span::raw(" "),
+            Span::styled(" esc close ", Style::default().fg(t.text).bg(t.border)),
+        ]))
+        .alignment(Alignment::Center)
+    };
     frame.render_widget(footer, footer_area);
 }
 
