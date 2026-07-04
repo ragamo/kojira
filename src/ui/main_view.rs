@@ -212,12 +212,15 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
         global_idx += 1;
     }
 
-    // "+" button
-    let add_label = " + ";
+    // "+ new tab" button
+    let add_label = " + new tab ";
     let add_w = add_label.len() as u16;
     let add_area = Rect { x, y: area.y, width: add_w, height: 1 };
     frame.render_widget(
-        Paragraph::new(Span::styled(add_label, Style::default().fg(t.accent))),
+        Paragraph::new(Line::from(vec![
+            Span::styled(" + ", Style::default().fg(t.accent)),
+            Span::styled("new tab ", Style::default().fg(t.text_dim)),
+        ])),
         add_area,
     );
     app.click_regions.header.tab_add = Some(add_area);

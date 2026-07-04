@@ -55,7 +55,6 @@ pub enum FocusLayer {
     Auth,
     Find,
     FindBoardPanel,
-    BoardPicker,
     ProjectDropdown,
 }
 
@@ -248,10 +247,6 @@ pub struct App {
 
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
-    pub board_picker_open: bool,
-    pub board_picker_boards: Vec<JiraBoard>,
-    pub board_picker_selected: usize,
-    pub board_picker_loading: bool,
 
     // Find modal
     pub find_modal_open: bool,
@@ -431,10 +426,6 @@ impl App {
             detail_transition_btn_area: None,
 
             board_tabs,
-            board_picker_open: false,
-            board_picker_boards: Vec::new(),
-            board_picker_selected: 0,
-            board_picker_loading: false,
 
             find_modal_open: false,
             find_input: String::new(),
@@ -600,13 +591,6 @@ impl App {
                     tab.error = Some(e.to_string());
                 }
             }
-            AppMessage::BoardsLoaded(Ok(boards)) => {
-                self.board_picker_boards = boards;
-                self.board_picker_loading = false;
-            }
-            AppMessage::BoardsLoaded(Err(_)) => {
-                self.board_picker_loading = false;
-            }
             AppMessage::BoardsForFindLoaded(project_key, Ok(boards)) => {
                 if self.find_panel_project.as_ref().map(|p| &p.key) == Some(&project_key) {
                     let total = boards.len() + 1; // +1 for list tab
@@ -705,7 +689,7 @@ impl App {
             FocusLayer::Settings => self.handle_settings_key(key),
             FocusLayer::Find => self.handle_find_key(key),
             FocusLayer::FindBoardPanel => self.handle_find_board_panel_key(key),
-            FocusLayer::BoardPicker => self.handle_board_picker_key(key),
+
             FocusLayer::ProjectDropdown => self.handle_dropdown_key(key),
             FocusLayer::Main => self.handle_main_key(key),
         }
@@ -1449,10 +1433,6 @@ impl App {
                 return;
             }
 
-            if self.board_picker_open {
-                return;
-            }
-
             if self.project_selector_open {
                 self.handle_dropdown_mouse(pos);
                 return;
@@ -1523,7 +1503,7 @@ impl App {
             if tab_clicked {
                 // handled
             } else if hit(pos, self.click_regions.header.tab_add) {
-                self.open_board_picker();
+                self.open_find();
             } else if hit(pos, self.click_regions.header.project_selector) {
                 self.project_selector_open = !self.project_selector_open;
                 self.focus = if self.project_selector_open {
@@ -2009,42 +1989,6 @@ impl App {
         }
     }
 
-    fn open_board_picker(&mut self) {
-        self.board_picker_open = true;
-        self.board_picker_selected = 0;
-        self.board_picker_boards.clear();
-        self.board_picker_loading = true;
-        self.focus = FocusLayer::BoardPicker;
-        self.load_boards_list();
-    }
-
-    fn handle_board_picker_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                self.board_picker_open = false;
-                self.focus = FocusLayer::Main;
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.board_picker_selected > 0 {
-                    self.board_picker_selected -= 1;
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.board_picker_selected < self.board_picker_boards.len().saturating_sub(1) {
-                    self.board_picker_selected += 1;
-                }
-            }
-            KeyCode::Enter => {
-                if let Some(board) = self.board_picker_boards.get(self.board_picker_selected).cloned() {
-                    self.add_board_tab(board);
-                    self.board_picker_open = false;
-                    self.focus = FocusLayer::Main;
-                }
-            }
-            _ => {}
-        }
-    }
-
     fn add_board_tab(&mut self, board: JiraBoard) {
         if self.board_tabs.iter().any(|t| t.board_id == board.id) {
             self.active_tab = Tab::Board(board.id);
@@ -2090,29 +2034,6 @@ impl App {
             });
         }
         let _ = config::save_config(&config);
-    }
-
-    fn load_boards_list(&self) {
-        let project = match self.projects.get(self.selected_project) {
-            Some(p) => p.clone(),
-            None => return,
-        };
-        let tx = self.message_tx.clone();
-        let client = self.http_client.clone();
-        let email = self.config.auth.email.clone().unwrap_or_default();
-        let token = self.config.auth.token.clone().unwrap_or_default();
-        let base_url = self
-            .config
-            .jira
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://jira.atlassian.net".into());
-
-        tokio::spawn(async move {
-            let provider = JiraProvider::new(client, base_url, email, token);
-            let result = provider.get_boards(&project.key).await;
-            let _ = tx.send(AppMessage::BoardsLoaded(result));
-        });
     }
 
     pub fn load_board_data(&self, board_id: u64) {

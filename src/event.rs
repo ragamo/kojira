@@ -20,7 +20,6 @@ pub enum AppMessage {
     TokenValidated(Result<JiraUser, JiraError>),
     SearchResults(Result<Vec<JiraProject>, JiraError>),
     BacklogLoaded(u64, Result<Vec<JiraIssue>, JiraError>),
-    BoardsLoaded(Result<Vec<JiraBoard>, JiraError>),
     BoardsForFindLoaded(String, Result<Vec<JiraBoard>, JiraError>),
     BoardDataLoaded(u64, Result<(JiraBoardConfig, Vec<JiraIssue>), JiraError>),
     ColumnOrderLoaded(Result<Vec<String>, JiraError>),
