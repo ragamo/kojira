@@ -11,39 +11,58 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
     .split(area);
 
     render_header(frame, app, chunks[0]);
-    // separator: ▄ row — top half = header bg, bottom half = tab bar bg
+
     let t = app.theme;
     let header_bg = if app.header_bg_soft { t.bg } else { t.header_bg };
-    let sep_area = chunks[1];
+
+    // separator above tabs: ▄ top half = header bg, bottom half = tab bar bg
+    let sep_top = chunks[1];
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "▄".repeat(sep_area.width as usize),
+            "▄".repeat(sep_top.width as usize),
             Style::default().fg(t.header_bg).bg(header_bg),
         )),
-        sep_area,
+        sep_top,
     );
+
     render_tabs(frame, app, chunks[2]);
+
+    // separator below tabs: ▀ top half = tab bar bg, bottom half = content bg
+    let sep_bot = chunks[3];
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "▀".repeat(sep_bot.width as usize),
+            Style::default().fg(t.header_bg).bg(t.bg),
+        ))
+        .style(Style::default().bg(t.bg)),
+        sep_bot,
+    );
+
+    // Fill content area with t.bg when solid background is enabled
+    if app.content_bg_solid {
+        frame.render_widget(Block::default().style(Style::default().bg(t.bg)), chunks[4]);
+    }
 
     if app.detail_open {
         if app.detail_height == 0 {
-            app.detail_height = (chunks[3].height * 70 / 100).max(10);
+            app.detail_height = (chunks[4].height * 70 / 100).max(10);
         }
-        let detail_h = app.detail_height.min(chunks[3].height.saturating_sub(4));
-        let content_h = chunks[3].height.saturating_sub(detail_h);
+        let detail_h = app.detail_height.min(chunks[4].height.saturating_sub(4));
+        let content_h = chunks[4].height.saturating_sub(detail_h);
         let splits = Layout::vertical([
             Constraint::Length(content_h),
             Constraint::Length(detail_h),
         ])
-        .split(chunks[3]);
+        .split(chunks[4]);
         render_content(frame, app, splits[0]);
         crate::ui::detail_panel::render(frame, app, splits[1]);
-        // Extend resize area to cover bottom border of content + top border of panel
         let border_y = splits[0].y + splits[0].height.saturating_sub(1);
         app.detail_resize_area = Some(Rect {
             x: splits[1].x,
@@ -53,10 +72,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         });
     } else {
         app.detail_height = 0;
-        render_content(frame, app, chunks[3]);
+        render_content(frame, app, chunks[4]);
     }
 
-    render_footer(frame, app.theme, chunks[4]);
+    render_footer(frame, app.theme, chunks[5]);
 
 }
 

@@ -172,36 +172,63 @@ fn render_config_tab(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     };
 
+    let cursor = |selected: bool| {
+        if selected {
+            Span::styled(" ▸ ", Style::default().fg(t.accent))
+        } else {
+            Span::raw("   ")
+        }
+    };
+
+    // Field 0: Header background
     let header_y = area.y + 1;
     let header_label = "Header background: ";
     let soft_x = area.x + 3 + header_label.len() as u16;
     let hard_x = soft_x + 6 + 1;
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" ▸ ", Style::default().fg(t.accent)),
+            cursor(app.settings_board_field == 0),
             Span::styled(header_label, Style::default().fg(t.text)),
             Span::styled(" soft ", val_style(app.header_bg_soft)),
             Span::raw(" "),
             Span::styled(" hard ", val_style(!app.header_bg_soft)),
         ])),
-        Rect {
-            x: area.x,
-            y: header_y,
-            width: area.width.saturating_sub(2),
-            height: 1,
-        },
+        Rect { x: area.x, y: header_y, width: area.width.saturating_sub(2), height: 1 },
     );
     app.settings_header_soft_area = Some(Rect { x: soft_x, y: header_y, width: 6, height: 1 });
     app.settings_header_hard_area = Some(Rect { x: hard_x, y: header_y, width: 6, height: 1 });
 
+    // Field 1: Solid background
+    let solid_y = area.y + 2;
+    let solid_label = "Solid background:  ";
+    let on_x = area.x + 3 + solid_label.len() as u16;
+    let off_x = on_x + 5 + 1;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            cursor(app.settings_board_field == 1),
+            Span::styled(solid_label, Style::default().fg(t.text)),
+            Span::styled(" on  ", val_style(app.content_bg_solid)),
+            Span::raw(" "),
+            Span::styled(" off ", val_style(!app.content_bg_solid)),
+        ])),
+        Rect { x: area.x, y: solid_y, width: area.width.saturating_sub(2), height: 1 },
+    );
+    app.settings_header_soft_area = Some(Rect { x: soft_x, y: header_y, width: 6, height: 1 });
+    app.settings_header_hard_area = Some(Rect { x: hard_x, y: header_y, width: 6, height: 1 });
+    // reuse board on/off areas for mouse clicks on the solid bg field
+    app.settings_board_on_area = Some(Rect { x: on_x, y: solid_y, width: 4, height: 1 });
+    app.settings_board_off_area = Some(Rect { x: off_x, y: solid_y, width: 5, height: 1 });
+
     let hint_area = Rect {
         x: area.x + 3,
-        y: area.y + 3,
+        y: area.y + 4,
         width: area.width.saturating_sub(4),
         height: 1,
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
+            Span::styled("↑↓", Style::default().fg(t.accent)),
+            Span::styled(" field  ", Style::default().fg(t.text_dim)),
             Span::styled("space", Style::default().fg(t.accent)),
             Span::styled(" toggle  ", Style::default().fg(t.text_dim)),
             Span::styled("↵", Style::default().fg(t.accent)),

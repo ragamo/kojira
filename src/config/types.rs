@@ -16,6 +16,7 @@ pub struct UiConfig {
     pub header_bg: Option<String>,
     pub board_hide_subtasks: Option<bool>,
     pub board_hide_backlog_col: Option<bool>,
+    pub content_bg_solid: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

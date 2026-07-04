@@ -282,6 +282,7 @@ pub struct App {
     pub settings_close_area: Option<Rect>,
     pub board_hide_subtasks: bool,
     pub board_hide_backlog_col: bool,
+    pub content_bg_solid: bool,
     pub settings_board_field: usize,
     pub mouse_pos: (u16, u16),
     pub board_content_area: Option<Rect>,
@@ -472,6 +473,7 @@ impl App {
             settings_close_area: None,
             board_hide_subtasks: config.ui.board_hide_subtasks.unwrap_or(false),
             board_hide_backlog_col: config.ui.board_hide_backlog_col.unwrap_or(false),
+            content_bg_solid: config.ui.content_bg_solid.unwrap_or(true),
             settings_board_field: 0,
             mouse_pos: (0, 0),
             board_content_area: None,
@@ -820,15 +822,19 @@ impl App {
                 }
             }
             KeyCode::Char(' ') if self.settings_selected == 1 => {
-                self.header_bg_soft = !self.header_bg_soft;
+                match self.settings_board_field {
+                    0 => self.header_bg_soft = !self.header_bg_soft,
+                    _ => self.content_bg_solid = !self.content_bg_solid,
+                }
             }
-            KeyCode::Up | KeyCode::Char('k') if self.settings_selected == 2 => {
+            KeyCode::Up | KeyCode::Char('k') if self.settings_selected == 1 || self.settings_selected == 2 => {
                 if self.settings_board_field > 0 {
                     self.settings_board_field -= 1;
                 }
             }
-            KeyCode::Down | KeyCode::Char('j') if self.settings_selected == 2 => {
-                if self.settings_board_field < 1 {
+            KeyCode::Down | KeyCode::Char('j') if self.settings_selected == 1 || self.settings_selected == 2 => {
+                let max = if self.settings_selected == 1 { 1 } else { 1 };
+                if self.settings_board_field < max {
                     self.settings_board_field += 1;
                 }
             }
@@ -1242,6 +1248,7 @@ impl App {
             Some(if self.header_bg_soft { "soft" } else { "hard" }.to_string());
         self.config.ui.board_hide_subtasks = Some(self.board_hide_subtasks);
         self.config.ui.board_hide_backlog_col = Some(self.board_hide_backlog_col);
+        self.config.ui.content_bg_solid = Some(self.content_bg_solid);
         let _ = config::save_config(&self.config);
         self.settings_open = false;
         self.focus = FocusLayer::Main;
@@ -1528,6 +1535,14 @@ impl App {
             }
             if hit(pos, self.settings_header_hard_area) {
                 self.header_bg_soft = false;
+                return;
+            }
+            if hit(pos, self.settings_board_on_area) {
+                self.content_bg_solid = true;
+                return;
+            }
+            if hit(pos, self.settings_board_off_area) {
+                self.content_bg_solid = false;
                 return;
             }
         }
