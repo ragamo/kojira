@@ -325,10 +325,7 @@ impl App {
         let mut list_tabs: Vec<ListTab> = Vec::new();
         let mut board_tabs: Vec<BoardTab> = Vec::new();
 
-        for open_tab in config.jira.open_tabs.iter().filter(|t| match t {
-            OpenTab::List { project_key, .. } => project_key == &current_project_key,
-            OpenTab::Board { project_key, .. } => project_key == &current_project_key,
-        }) {
+        for open_tab in config.jira.open_tabs.iter() {
             match open_tab {
                 OpenTab::List { id, project_key, project_name } => {
                     list_tabs.push(ListTab {
@@ -1836,26 +1833,40 @@ impl App {
     }
 
     fn save_open_tabs(&self) {
-        let project_key = self
-            .projects
-            .get(self.selected_project)
-            .map(|p| p.key.clone())
-            .unwrap_or_default();
+        // Collect all project keys currently open in memory
+        let mut live_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for lt in &self.list_tabs { live_keys.insert(lt.project_key.clone()); }
+        for bt in &self.board_tabs {
+            // board_tabs don't carry a project_key, derive from list_tabs context
+            // (boards always belong to the same project set as list tabs)
+            let _ = bt; // handled below via full replace
+        }
+
         let mut config = self.config.clone();
-        config.jira.open_tabs.retain(|t| match t {
-            OpenTab::List { project_key: pk, .. } => pk != &project_key,
-            OpenTab::Board { project_key: pk, .. } => pk != &project_key,
+        // Drop all persisted tabs whose project key is currently managed in memory,
+        // then re-write them from the live state.
+        config.jira.open_tabs.retain(|t| {
+            let pk = match t {
+                OpenTab::List { project_key, .. } => project_key,
+                OpenTab::Board { project_key, .. } => project_key,
+            };
+            !live_keys.contains(pk)
         });
         for lt in &self.list_tabs {
             config.jira.open_tabs.push(OpenTab::List {
-                project_key: project_key.clone(),
+                project_key: lt.project_key.clone(),
                 project_name: lt.project_name.clone(),
                 id: lt.id,
             });
         }
+        // Board tabs need a project_key — use the active list tab's project as context
+        let board_project_key = self.list_tabs.first()
+            .map(|t| t.project_key.clone())
+            .or_else(|| self.projects.get(self.selected_project).map(|p| p.key.clone()))
+            .unwrap_or_default();
         for bt in &self.board_tabs {
             config.jira.open_tabs.push(OpenTab::Board {
-                project_key: project_key.clone(),
+                project_key: board_project_key.clone(),
                 board_id: bt.board_id,
                 board_name: bt.board_name.clone(),
             });
