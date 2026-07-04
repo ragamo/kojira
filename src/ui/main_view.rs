@@ -72,7 +72,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         });
     } else if app.create_modal_open {
         if app.create_panel_height == 0 {
-            app.create_panel_height = (chunks[4].height * 50 / 100).max(12);
+            app.create_panel_height = (frame.area().height * 50 / 100).max(12);
         }
         let panel_h = app.create_panel_height.min(chunks[4].height.saturating_sub(4));
         let content_h = chunks[4].height.saturating_sub(panel_h);
