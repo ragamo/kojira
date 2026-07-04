@@ -76,6 +76,19 @@ pub enum CreateField {
     Cancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailField {
+    Assignee,
+    Parent,
+    Priority,
+}
+
+pub struct DetailFieldEdit {
+    pub field: DetailField,
+    pub items: Vec<(String, String)>, // (id/key, display_name)
+    pub selected: usize,
+}
+
 pub struct CreateModalState {
     pub title: String,
     pub description_editor: SimpleEditor,
@@ -302,6 +315,10 @@ pub struct App {
     pub detail_transition_open: bool,
     pub detail_transition_selected: usize,
     pub detail_transition_btn_area: Option<Rect>,
+    pub detail_field_edit: Option<DetailFieldEdit>,
+    pub detail_field_areas: Vec<(Rect, DetailField)>,
+    pub detail_field_dropdown_areas: Vec<Rect>,
+    pub detail_field_scroll: usize,
 
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
@@ -526,6 +543,10 @@ impl App {
             detail_transition_open: false,
             detail_transition_selected: 0,
             detail_transition_btn_area: None,
+            detail_field_edit: None,
+            detail_field_areas: Vec::new(),
+            detail_field_dropdown_areas: Vec::new(),
+            detail_field_scroll: 0,
 
             board_tabs,
             tab_order,
@@ -765,6 +786,14 @@ impl App {
             AppMessage::IssueCreated(Err(e)) => {
                 self.create_modal.saving = false;
                 self.create_modal.error = Some(e.to_string());
+            }
+            AppMessage::IssueFieldUpdated(key, Ok(())) => {
+                self.detail_field_edit = None;
+                self.load_issue_detail(&key);
+                self.reload_active_tab();
+            }
+            AppMessage::IssueFieldUpdated(_, Err(_)) => {
+                self.detail_field_edit = None;
             }
             AppMessage::ColumnOrderLoaded(Err(_)) => {}
             AppMessage::BacklogLoaded(tab_id, Err(e)) => {
@@ -2046,6 +2075,29 @@ impl App {
                     }
                     return;
                 }
+                // Detail field dropdown clicks
+                if self.detail_field_edit.is_some() {
+                    for (i, area) in self.detail_field_dropdown_areas.iter().enumerate() {
+                        if hit(pos, Some(*area)) {
+                            if let Some(ref mut edit) = self.detail_field_edit {
+                                edit.selected = i;
+                            }
+                            self.confirm_detail_field_selection();
+                            return;
+                        }
+                    }
+                    // Click outside dropdown closes it
+                    self.detail_field_edit = None;
+                    return;
+                }
+                // Detail field area clicks (open selector)
+                for (area, field) in &self.detail_field_areas {
+                    if hit(pos, Some(*area)) {
+                        let f = *field;
+                        self.open_detail_field_selector(f);
+                        return;
+                    }
+                }
             }
 
             let all_tabs = self.all_tab_ids();
@@ -2336,6 +2388,110 @@ impl App {
             let provider = JiraProvider::new(client, base_url, email, token);
             let result = provider.do_transition(&key, &tid).await;
             let _ = tx.send(AppMessage::TransitionDone(key, result));
+        });
+    }
+
+    fn open_detail_field_selector(&mut self, field: DetailField) {
+        let issue = match &self.detail_issue {
+            Some(i) => i.clone(),
+            None => return,
+        };
+
+        let items: Vec<(String, String)> = match field {
+            DetailField::Assignee => {
+                self.create_modal.assignees.iter()
+                    .map(|u| (u.account_id.clone(), u.display_name.clone()))
+                    .collect()
+            }
+            DetailField::Parent => {
+                self.create_modal.epics.iter()
+                    .map(|e| (e.key.clone(), format!("{} - {}", e.key, e.fields.summary)))
+                    .collect()
+            }
+            DetailField::Priority => {
+                PRIORITIES.iter()
+                    .map(|p| (p.to_string(), p.to_string()))
+                    .collect()
+            }
+        };
+
+        if items.is_empty() {
+            // Load data if not available
+            if let Some(project_key) = self.active_project_key() {
+                match field {
+                    DetailField::Assignee => self.load_assignable_users(project_key),
+                    DetailField::Parent => self.load_epics(project_key),
+                    DetailField::Priority => {}
+                }
+            }
+            if field == DetailField::Priority {
+                let items: Vec<(String, String)> = PRIORITIES.iter()
+                    .map(|p| (p.to_string(), p.to_string()))
+                    .collect();
+                self.detail_field_edit = Some(DetailFieldEdit { field, items, selected: 0 });
+                self.detail_field_scroll = 0;
+            }
+            return;
+        }
+
+        let current_selected = match field {
+            DetailField::Assignee => {
+                issue.fields.assignee.as_ref()
+                    .and_then(|a| items.iter().position(|(id, _)| *id == a.account_id))
+                    .unwrap_or(0)
+            }
+            DetailField::Parent => {
+                issue.fields.parent.as_ref()
+                    .and_then(|p| items.iter().position(|(key, _)| *key == p.key))
+                    .unwrap_or(0)
+            }
+            DetailField::Priority => {
+                issue.fields.priority.as_ref()
+                    .and_then(|p| items.iter().position(|(name, _)| *name == p.name))
+                    .unwrap_or(2)
+            }
+        };
+
+        self.detail_field_edit = Some(DetailFieldEdit { field, items, selected: current_selected });
+        self.detail_field_scroll = current_selected;
+    }
+
+    fn confirm_detail_field_selection(&mut self) {
+        let edit = match self.detail_field_edit.take() {
+            Some(e) => e,
+            None => return,
+        };
+        let issue_key = match &self.detail_issue {
+            Some(i) => i.key.clone(),
+            None => return,
+        };
+        let (id, _) = match edit.items.get(edit.selected) {
+            Some(item) => item.clone(),
+            None => return,
+        };
+
+        let fields = match edit.field {
+            DetailField::Assignee => serde_json::json!({ "assignee": { "accountId": id } }),
+            DetailField::Parent => serde_json::json!({ "parent": { "key": id } }),
+            DetailField::Priority => serde_json::json!({ "priority": { "name": id } }),
+        };
+
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let key = issue_key.clone();
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let result = provider.update_issue_fields(&key, fields).await;
+            let _ = tx.send(AppMessage::IssueFieldUpdated(key, result));
         });
     }
 

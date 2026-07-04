@@ -32,6 +32,7 @@ pub enum AppMessage {
     AssignableUsersLoaded(Result<Vec<JiraUser>, JiraError>),
     EpicsLoaded(Result<Vec<JiraIssue>, JiraError>),
     IssueCreated(Result<String, JiraError>),
+    IssueFieldUpdated(String, Result<(), JiraError>),
 }
 
 pub async fn event_loop(tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {

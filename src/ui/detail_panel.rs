@@ -462,91 +462,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 use crate::provider::types::JiraIssue;
 use crate::theme::Theme;
 
-fn render_metadata(frame: &mut Frame, app: &App, t: &Theme, issue: &JiraIssue, area: Rect) {
-    let mut lines: Vec<Line> = Vec::new();
-
-    let label_style = Style::default().fg(t.text_dim);
-    let value_style = Style::default().fg(t.text);
-
-    // Assignee
-    let assignee = issue
-        .fields
-        .assignee
-        .as_ref()
-        .map(|a| a.display_name.as_str())
-        .unwrap_or("-");
-    lines.push(Line::from(Span::styled("Assignee", label_style)));
-    lines.push(Line::from(Span::styled(assignee, Style::default().fg(t.warning))));
-    lines.push(Line::from(""));
-
-    // Reporter
-    if let Some(ref meta) = app.detail_metadata {
-        if let Some(ref reporter) = meta.reporter {
-            lines.push(Line::from(Span::styled("Reporter", label_style)));
-            lines.push(Line::from(Span::styled(reporter.as_str(), value_style)));
-            lines.push(Line::from(""));
-        }
-    }
-
-    // Parent/Epic
-    if let Some(ref parent) = issue.fields.parent {
-        let epic_name = parent
-            .fields
-            .as_ref()
-            .map(|f| f.summary.as_str())
-            .unwrap_or(&parent.key);
-        lines.push(Line::from(Span::styled("Parent", label_style)));
-        lines.push(Line::from(vec![
-            Span::styled(&parent.key, Style::default().fg(t.accent)),
-            Span::styled(" ", Style::default()),
-            Span::styled(epic_name, value_style),
-        ]));
-        lines.push(Line::from(""));
-    }
-
-    // Labels
-    if let Some(ref meta) = app.detail_metadata {
-        if !meta.labels.is_empty() {
-            lines.push(Line::from(Span::styled("Labels", label_style)));
-            lines.push(Line::from(Span::styled(
-                meta.labels.join(", "),
-                value_style,
-            )));
-            lines.push(Line::from(""));
-        }
-    }
-
-    // Priority
-    if let Some(ref priority) = issue.fields.priority {
-        lines.push(Line::from(Span::styled("Priority", label_style)));
-        lines.push(Line::from(Span::styled(&priority.name, value_style)));
-        lines.push(Line::from(""));
-    }
-
-    // Type
-    lines.push(Line::from(Span::styled("Type", label_style)));
-    lines.push(Line::from(Span::styled(&issue.fields.issue_type.name, value_style)));
-    lines.push(Line::from(""));
-
-    // Dates
-    if let Some(ref meta) = app.detail_metadata {
-        if let Some(ref created) = meta.created {
-            let date = if created.len() >= 10 { &created[..10] } else { created };
-            lines.push(Line::from(Span::styled("Created", label_style)));
-            lines.push(Line::from(Span::styled(date, value_style)));
-            lines.push(Line::from(""));
-        }
-        if let Some(ref start) = meta.start_date {
-            lines.push(Line::from(Span::styled("Start date", label_style)));
-            lines.push(Line::from(Span::styled(start.as_str(), value_style)));
-            lines.push(Line::from(""));
-        }
-        if let Some(ref due) = meta.due_date {
-            lines.push(Line::from(Span::styled("Due date", label_style)));
-            lines.push(Line::from(Span::styled(due.as_str(), value_style)));
-            lines.push(Line::from(""));
-        }
-    }
+fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssue, area: Rect) {
+    use crate::app::DetailField;
 
     let block = Block::default()
         .borders(Borders::LEFT)
@@ -554,8 +471,134 @@ fn render_metadata(frame: &mut Frame, app: &App, t: &Theme, issue: &JiraIssue, a
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let meta_widget = Paragraph::new(lines).wrap(Wrap { trim: false });
-    frame.render_widget(meta_widget, inner);
+    app.detail_field_areas.clear();
+    app.detail_field_dropdown_areas.clear();
+
+    let label_style = Style::default().fg(t.text_dim);
+    let value_style = Style::default().fg(t.text);
+    let x = inner.x + 1;
+    let w = inner.width.saturating_sub(1);
+    let mut y = inner.y;
+
+    // Assignee (clickable)
+    let assignee = issue
+        .fields
+        .assignee
+        .as_ref()
+        .map(|a| a.display_name.as_str())
+        .unwrap_or("-");
+    let assignee_area = Rect { x, y, width: w, height: 2 };
+    frame.render_widget(Paragraph::new(Span::styled("assignee", label_style)), Rect { x, y, width: w, height: 1 });
+    y += 1;
+    frame.render_widget(Paragraph::new(Span::styled(assignee, Style::default().fg(t.warning))), Rect { x, y, width: w, height: 1 });
+    app.detail_field_areas.push((assignee_area, DetailField::Assignee));
+    y += 2;
+
+    // Reporter (read-only)
+    if let Some(ref meta) = app.detail_metadata {
+        if let Some(ref reporter) = meta.reporter {
+            frame.render_widget(Paragraph::new(Span::styled("reporter", label_style)), Rect { x, y, width: w, height: 1 });
+            y += 1;
+            frame.render_widget(Paragraph::new(Span::styled(reporter.as_str(), value_style)), Rect { x, y, width: w, height: 1 });
+            y += 2;
+        }
+    }
+
+    // Parent/Epic (clickable)
+    let parent_display = if let Some(ref parent) = issue.fields.parent {
+        let epic_name = parent.fields.as_ref().map(|f| f.summary.as_str()).unwrap_or(&parent.key);
+        format!("{} {}", parent.key, epic_name)
+    } else {
+        "-".to_string()
+    };
+    let parent_area = Rect { x, y, width: w, height: 2 };
+    frame.render_widget(Paragraph::new(Span::styled("parent", label_style)), Rect { x, y, width: w, height: 1 });
+    y += 1;
+    frame.render_widget(Paragraph::new(Span::styled(&parent_display, Style::default().fg(t.accent))), Rect { x, y, width: w, height: 1 });
+    app.detail_field_areas.push((parent_area, DetailField::Parent));
+    y += 2;
+
+    // Priority (clickable)
+    let priority_name = issue.fields.priority.as_ref().map(|p| p.name.as_str()).unwrap_or("-");
+    let priority_area = Rect { x, y, width: w, height: 2 };
+    frame.render_widget(Paragraph::new(Span::styled("priority", label_style)), Rect { x, y, width: w, height: 1 });
+    y += 1;
+    frame.render_widget(Paragraph::new(Span::styled(priority_name, value_style)), Rect { x, y, width: w, height: 1 });
+    app.detail_field_areas.push((priority_area, DetailField::Priority));
+    y += 2;
+
+    // Type (read-only)
+    frame.render_widget(Paragraph::new(Span::styled("type", label_style)), Rect { x, y, width: w, height: 1 });
+    y += 1;
+    frame.render_widget(Paragraph::new(Span::styled(&issue.fields.issue_type.name, value_style)), Rect { x, y, width: w, height: 1 });
+    y += 2;
+
+    // Labels (read-only)
+    if let Some(ref meta) = app.detail_metadata {
+        if !meta.labels.is_empty() {
+            frame.render_widget(Paragraph::new(Span::styled("labels", label_style)), Rect { x, y, width: w, height: 1 });
+            y += 1;
+            frame.render_widget(Paragraph::new(Span::styled(meta.labels.join(", "), value_style)), Rect { x, y, width: w, height: 1 });
+            y += 2;
+        }
+    }
+
+    // Dates (read-only)
+    if let Some(ref meta) = app.detail_metadata {
+        if let Some(ref created) = meta.created {
+            let date = if created.len() >= 10 { &created[..10] } else { created };
+            frame.render_widget(Paragraph::new(Span::styled("created", label_style)), Rect { x, y, width: w, height: 1 });
+            y += 1;
+            frame.render_widget(Paragraph::new(Span::styled(date, value_style)), Rect { x, y, width: w, height: 1 });
+            let _ = y;
+        }
+    }
+
+    // Dropdown overlay for field edit
+    if let Some(ref edit) = app.detail_field_edit {
+        let field_area = app.detail_field_areas.iter()
+            .find(|(_, f)| *f == edit.field)
+            .map(|(a, _)| *a);
+        if let Some(fa) = field_area {
+            let dropdown_x = fa.x;
+            let dropdown_y = fa.y + fa.height;
+            let max_visible = 5usize;
+            let count = edit.items.len().min(max_visible);
+            let h = count as u16 + 2;
+            let dropdown_area = Rect { x: dropdown_x, y: dropdown_y, width: w, height: h };
+
+            frame.render_widget(ratatui::widgets::Clear, dropdown_area);
+            let dd_block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.accent))
+                .style(Style::default().bg(t.bg));
+            let dd_inner = dd_block.inner(dropdown_area);
+            frame.render_widget(dd_block, dropdown_area);
+
+            let scroll_start = if edit.selected >= max_visible {
+                edit.selected - max_visible + 1
+            } else {
+                0
+            };
+
+            for (i, idx) in (scroll_start..edit.items.len().min(scroll_start + max_visible)).enumerate() {
+                let item_area = Rect { x: dd_inner.x, y: dd_inner.y + i as u16, width: dd_inner.width, height: 1 };
+                let style = if idx == edit.selected {
+                    Style::default().fg(t.bg).bg(t.accent)
+                } else {
+                    Style::default().fg(t.text)
+                };
+                let (_, ref display) = edit.items[idx];
+                let text: String = if display.chars().count() > dd_inner.width as usize {
+                    display.chars().take(dd_inner.width as usize - 1).collect::<String>() + "…"
+                } else {
+                    display.clone()
+                };
+                frame.render_widget(Paragraph::new(Span::styled(text, style)), item_area);
+                app.detail_field_dropdown_areas.push(item_area);
+            }
+        }
+    }
 }
 
 fn pad_or_truncate(s: &str, width: usize) -> String {

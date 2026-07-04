@@ -243,6 +243,25 @@ impl JiraProvider {
         Ok(())
     }
 
+    pub async fn update_issue_fields(&self, issue_key: &str, fields: serde_json::Value) -> Result<(), JiraError> {
+        let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key);
+        let body = serde_json::json!({ "fields": fields });
+        let resp = self
+            .client
+            .put(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(JiraError::Auth(format!("HTTP {}: {}", status, &text[..text.len().min(200)])));
+        }
+        Ok(())
+    }
+
     pub async fn get_status_changelog(&self, issue_key: &str) -> Result<Vec<JiraChangelogEntry>, JiraError> {
         let url = format!("{}/rest/api/3/issue/{}/changelog", self.base_url, issue_key);
         let resp = self
