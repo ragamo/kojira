@@ -29,8 +29,6 @@ pub struct JiraConfig {
     pub base_url: Option<String>,
     pub project: Option<String>,
     #[serde(default)]
-    pub favorites: Vec<FavoriteProject>,
-    #[serde(default)]
     pub open_tabs: Vec<OpenTab>,
 }
 

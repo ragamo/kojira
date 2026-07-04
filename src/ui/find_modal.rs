@@ -135,7 +135,6 @@ fn render_search_pane(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let results_area = chunks[2];
     let mut result_areas = Vec::new();
-    let mut star_areas = Vec::new();
 
     let items: Vec<ListItem> = app
         .find_results
@@ -143,7 +142,6 @@ fn render_search_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         .enumerate()
         .map(|(i, p)| {
             let is_selected = i == app.find_selected;
-            let star = if p.is_favorite { "★" } else { "☆" };
 
             let style = if is_selected {
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
@@ -151,15 +149,9 @@ fn render_search_pane(frame: &mut Frame, app: &mut App, area: Rect) {
                 Style::default().fg(t.text)
             };
 
-            let star_style = if p.is_favorite {
-                Style::default().fg(t.warning)
-            } else {
-                Style::default().fg(t.text_dim)
-            };
-
             let line = Line::from(vec![
-                Span::styled(format!(" {} ", star), star_style),
-                Span::styled(format!("{} - {}", p.key, p.name), style),
+                Span::styled(format!(" {}", p.key), Style::default().fg(t.accent)),
+                Span::styled(format!(" - {}", p.name), style),
             ]);
 
             result_areas.push(Rect {
@@ -168,19 +160,12 @@ fn render_search_pane(frame: &mut Frame, app: &mut App, area: Rect) {
                 width: results_area.width,
                 height: 1,
             });
-            star_areas.push(Rect {
-                x: results_area.x,
-                y: results_area.y + i as u16,
-                width: 3,
-                height: 1,
-            });
 
             ListItem::new(line)
         })
         .collect();
 
     app.click_regions.find_modal.result_areas = result_areas;
-    app.click_regions.find_modal.star_areas = star_areas;
 
     let list = List::new(items);
     frame.render_widget(list, results_area);
@@ -194,8 +179,6 @@ fn render_search_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         Paragraph::new(Line::from(vec![
             Span::styled(" Enter", Style::default().fg(t.accent)),
             Span::styled(" select ", Style::default().fg(t.text_dim)),
-            Span::styled(" s", Style::default().fg(t.accent)),
-            Span::styled(" favorite ", Style::default().fg(t.text_dim)),
             Span::styled(" Esc", Style::default().fg(t.accent)),
             Span::styled(" close", Style::default().fg(t.text_dim)),
         ]))

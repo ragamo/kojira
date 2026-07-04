@@ -6,7 +6,6 @@ pub struct ClickRegions {
     pub backlog: BacklogRegion,
     pub board_cards: BoardCardRegion,
     pub find_modal: FindModalRegion,
-    pub project_dropdown: ProjectDropdownRegion,
 }
 
 impl ClickRegions {
@@ -15,14 +14,11 @@ impl ClickRegions {
         self.backlog = BacklogRegion::default();
         self.board_cards = BoardCardRegion::default();
         self.find_modal = FindModalRegion::default();
-        self.project_dropdown = ProjectDropdownRegion::default();
     }
 }
 
 #[derive(Default)]
 pub struct HeaderRegion {
-    pub project_selector: Option<Rect>,
-    pub find_link: Option<Rect>,
     pub settings_link: Option<Rect>,
     pub login_link: Option<Rect>,
     pub logout_link: Option<Rect>,
@@ -45,12 +41,5 @@ pub struct BoardCardRegion {
 pub struct FindModalRegion {
     pub bounds: Option<Rect>,
     pub result_areas: Vec<Rect>,
-    pub star_areas: Vec<Rect>,
     pub panel_item_areas: Vec<Rect>,
-}
-
-#[derive(Default)]
-pub struct ProjectDropdownRegion {
-    pub bounds: Option<Rect>,
-    pub items: Vec<Rect>,
 }

@@ -55,7 +55,6 @@ pub enum FocusLayer {
     Auth,
     Find,
     FindBoardPanel,
-    ProjectDropdown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +68,6 @@ pub enum AuthField {
 pub struct FindProject {
     pub key: String,
     pub name: String,
-    pub is_favorite: bool,
 }
 
 #[derive(Default)]
@@ -198,7 +196,6 @@ pub struct App {
     pub active_tab: Tab,
     pub projects: Vec<FavoriteProject>,
     pub selected_project: usize,
-    pub project_selector_open: bool,
     pub click_regions: ClickRegions,
     pub config: AppConfig,
     pub focus: FocusLayer,
@@ -306,7 +303,18 @@ impl App {
             .position(|t| t.name == theme.name)
             .unwrap_or(0);
 
-        let projects = config.jira.favorites.clone();
+        // Derive the project list from persisted open_tabs (deduplicated)
+        let mut projects: Vec<FavoriteProject> = Vec::new();
+        for tab in &config.jira.open_tabs {
+            let (key, name) = match tab {
+                OpenTab::List { project_key, project_name, .. } => (project_key.clone(), project_name.clone()),
+                OpenTab::Board { project_key, board_name, .. } => (project_key.clone(), board_name.clone()),
+            };
+            if !projects.iter().any(|p| p.key == key) {
+                projects.push(FavoriteProject { key, name });
+            }
+        }
+
         let logged_in = config.auth.token.is_some();
         let user_email = config.auth.email.clone();
 
@@ -384,7 +392,6 @@ impl App {
             active_tab: Tab::List(first_list_id),
             projects,
             selected_project: 0,
-            project_selector_open: false,
             click_regions: ClickRegions::default(),
             focus: FocusLayer::Main,
 
@@ -655,14 +662,9 @@ impl App {
                 }
             }
             AppMessage::SearchResults(Ok(projects)) => {
-                let favorites: Vec<&str> = self.projects.iter().map(|f| f.key.as_str()).collect();
                 self.find_results = projects
                     .into_iter()
-                    .map(|p| FindProject {
-                        is_favorite: favorites.contains(&p.key.as_str()),
-                        key: p.key,
-                        name: p.name,
-                    })
+                    .map(|p| FindProject { key: p.key, name: p.name })
                     .collect();
                 self.find_loading = false;
                 self.find_selected = 0;
@@ -690,7 +692,7 @@ impl App {
             FocusLayer::Find => self.handle_find_key(key),
             FocusLayer::FindBoardPanel => self.handle_find_board_panel_key(key),
 
-            FocusLayer::ProjectDropdown => self.handle_dropdown_key(key),
+
             FocusLayer::Main => self.handle_main_key(key),
         }
     }
@@ -706,10 +708,6 @@ impl App {
                 if let Some(tab) = all.get(idx) {
                     self.active_tab = tab.clone();
                 }
-            }
-            KeyCode::Char('p') => {
-                self.project_selector_open = true;
-                self.focus = FocusLayer::ProjectDropdown;
             }
             KeyCode::Char('f') => self.open_find(),
             KeyCode::Char('r') => self.refresh_active_tab(),
@@ -779,40 +777,6 @@ impl App {
                 let count = self.filtered_backlog_count();
                 if let Some(tab) = self.active_list_tab_mut() {
                     tab.nav.move_up(count);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn handle_dropdown_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.selected_project > 0 {
-                    self.selected_project -= 1;
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.selected_project + 1 < self.projects.len() {
-                    self.selected_project += 1;
-                }
-            }
-            KeyCode::Enter => {
-                self.project_selector_open = false;
-                self.focus = FocusLayer::Main;
-                self.on_project_changed();
-            }
-            KeyCode::Esc => {
-                self.project_selector_open = false;
-                self.focus = FocusLayer::Main;
-            }
-            KeyCode::Char('s') => {
-                if let Some(project) = self.projects.get(self.selected_project).cloned() {
-                    self.remove_favorite(&project.key);
-                    if self.projects.is_empty() {
-                        self.project_selector_open = false;
-                        self.focus = FocusLayer::Main;
-                    }
                 }
             }
             _ => {}
@@ -910,15 +874,6 @@ impl App {
                     self.find_selected += 1;
                 }
             }
-            KeyCode::Char('s') if !self.find_results.is_empty() => {
-                if let Some(project) = self.find_results.get(self.find_selected).cloned() {
-                    if project.is_favorite {
-                        self.remove_favorite(&project.key);
-                    } else {
-                        self.add_favorite(&project);
-                    }
-                }
-            }
             KeyCode::Backspace => {
                 self.find_input.pop();
                 self.find_results.clear();
@@ -986,17 +941,10 @@ impl App {
     }
 
     fn confirm_find_panel_selection(&mut self) {
-        let project = match self.find_panel_project.clone() {
-            Some(p) => p,
+        let (project_key, project_name) = match self.find_panel_project.clone() {
+            Some(p) => (p.key, p.name),
             None => return,
         };
-
-        self.add_favorite(&project);
-        self.selected_project = self
-            .projects
-            .iter()
-            .position(|p| p.key == project.key)
-            .unwrap_or(0);
 
         // Ensure selected vec is sized correctly (1 list item + boards)
         let total = self.find_panel_boards.len() + 1;
@@ -1016,7 +964,11 @@ impl App {
             .map(|(_, b)| b.clone())
             .collect();
 
-        // Switch project first (creates a default list tab)
+        // Register project if not known yet, then switch to it
+        if !self.projects.iter().any(|p| p.key == project_key) {
+            self.projects.push(FavoriteProject { key: project_key.clone(), name: project_name });
+        }
+        self.selected_project = self.projects.iter().position(|p| p.key == project_key).unwrap_or(0);
         self.on_project_changed();
 
         // If list tab was not selected and boards were selected, don't force list active
@@ -1202,47 +1154,6 @@ impl App {
         self.active_tab = Tab::List(id);
         self.save_open_tabs();
         self.load_backlog_for_tab(id, project_key);
-    }
-
-    fn add_favorite(&mut self, project: &FindProject) {
-        let already = self.config.jira.favorites.iter().any(|f| f.key == project.key);
-        if already {
-            return;
-        }
-        self.config.jira.favorites.push(FavoriteProject {
-            key: project.key.clone(),
-            name: project.name.clone(),
-        });
-        let _ = config::save_config(&self.config);
-
-        if !self.projects.iter().any(|p| p.key == project.key) {
-            self.projects.push(FavoriteProject {
-                key: project.key.clone(),
-                name: project.name.clone(),
-            });
-        }
-
-        for p in &mut self.find_results {
-            if p.key == project.key {
-                p.is_favorite = true;
-            }
-        }
-    }
-
-    fn remove_favorite(&mut self, key: &str) {
-        self.config.jira.favorites.retain(|f| f.key != key);
-        let _ = config::save_config(&self.config);
-
-        self.projects.retain(|p| p.key != key);
-        if self.selected_project >= self.projects.len() && !self.projects.is_empty() {
-            self.selected_project = self.projects.len() - 1;
-        }
-
-        for p in &mut self.find_results {
-            if p.key == key {
-                p.is_favorite = false;
-            }
-        }
     }
 
     fn open_auth(&mut self) {
@@ -1433,11 +1344,6 @@ impl App {
                 return;
             }
 
-            if self.project_selector_open {
-                self.handle_dropdown_mouse(pos);
-                return;
-            }
-
             if self.detail_open {
                 if self.detail_transition_open {
                     // Click on button toggles off
@@ -1504,15 +1410,6 @@ impl App {
                 // handled
             } else if hit(pos, self.click_regions.header.tab_add) {
                 self.open_find();
-            } else if hit(pos, self.click_regions.header.project_selector) {
-                self.project_selector_open = !self.project_selector_open;
-                self.focus = if self.project_selector_open {
-                    FocusLayer::ProjectDropdown
-                } else {
-                    FocusLayer::Main
-                };
-            } else if hit(pos, self.click_regions.header.find_link) {
-                self.open_find();
             } else if hit(pos, self.click_regions.header.settings_link) {
                 self.open_settings();
             } else if hit(pos, self.click_regions.header.login_link) {
@@ -1576,22 +1473,6 @@ impl App {
         }
     }
 
-    fn handle_dropdown_mouse(&mut self, pos: (u16, u16)) {
-        for (i, area) in self.click_regions.project_dropdown.items.iter().enumerate() {
-            if hit(pos, Some(*area)) {
-                self.selected_project = i;
-                self.project_selector_open = false;
-                self.focus = FocusLayer::Main;
-                self.on_project_changed();
-                return;
-            }
-        }
-        if !hit(pos, self.click_regions.project_dropdown.bounds) {
-            self.project_selector_open = false;
-            self.focus = FocusLayer::Main;
-        }
-    }
-
     fn handle_find_mouse(&mut self, pos: (u16, u16)) {
         // Panel clicks take priority when panel is open
         if self.find_board_panel_open {
@@ -1602,19 +1483,6 @@ impl App {
                     self.toggle_find_panel_item(i);
                     return;
                 }
-            }
-        }
-
-        for (i, area) in self.click_regions.find_modal.star_areas.iter().enumerate() {
-            if hit(pos, Some(*area)) {
-                if let Some(project) = self.find_results.get(i).cloned() {
-                    if project.is_favorite {
-                        self.remove_favorite(&project.key);
-                    } else {
-                        self.add_favorite(&project);
-                    }
-                }
-                return;
             }
         }
 
