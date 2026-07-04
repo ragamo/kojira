@@ -708,8 +708,8 @@ impl App {
     fn handle_main_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.running = false,
-            KeyCode::Tab => self.next_tab(),
-            KeyCode::BackTab => self.prev_tab(),
+            KeyCode::Tab | KeyCode::Right if !self.detail_open => self.next_tab(),
+            KeyCode::BackTab | KeyCode::Left if !self.detail_open => self.prev_tab(),
             KeyCode::Char(c @ '1'..='9') => {
                 let idx = (c as usize) - ('1' as usize);
                 let all = self.all_tab_ids();
