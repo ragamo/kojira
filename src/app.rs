@@ -2742,6 +2742,7 @@ impl App {
 
     fn next_tab(&mut self) {
         let tabs = self.all_tab_ids();
+        if tabs.is_empty() { return; }
         let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
         let next_idx = (current_idx + 1) % tabs.len();
         self.active_tab = tabs[next_idx].clone();
@@ -2749,6 +2750,7 @@ impl App {
 
     fn prev_tab(&mut self) {
         let tabs = self.all_tab_ids();
+        if tabs.is_empty() { return; }
         let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
         let prev_idx = if current_idx == 0 { tabs.len() - 1 } else { current_idx - 1 };
         self.active_tab = tabs[prev_idx].clone();
