@@ -245,6 +245,8 @@ pub struct App {
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
     pub tab_order: Vec<Tab>,
+    pub tab_dragging: Option<usize>,
+    pub tab_drag_insert_pos: Option<usize>,
 
     // Find modal
     pub find_modal_open: bool,
@@ -437,6 +439,8 @@ impl App {
 
             board_tabs,
             tab_order,
+            tab_dragging: None,
+            tab_drag_insert_pos: None,
 
             find_modal_open: false,
             find_input: String::new(),
@@ -1258,12 +1262,24 @@ impl App {
                     let new_height = panel_bottom.saturating_sub(pos.1);
                     self.detail_height = new_height.max(6).min(panel_bottom.saturating_sub(6));
                 }
+                return;
+            }
+            if self.tab_dragging.is_some() {
+                self.tab_drag_insert_pos = Some(self.tab_insert_pos_for_x(pos.0));
+                return;
             }
             return;
         }
 
         if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
             self.detail_dragging = false;
+            if let Some(from) = self.tab_dragging.take() {
+                if let Some(to) = self.tab_drag_insert_pos.take() {
+                    self.reorder_tab(from, to);
+                } else {
+                    self.tab_drag_insert_pos = None;
+                }
+            }
             return;
         }
 
@@ -1390,6 +1406,8 @@ impl App {
                     if let Some(tab) = all_tabs.get(*idx) {
                         self.active_tab = tab.clone();
                     }
+                    self.tab_dragging = Some(*idx);
+                    self.tab_drag_insert_pos = None;
                     tab_clicked = true;
                     break;
                 }
@@ -1741,6 +1759,39 @@ impl App {
                 }
             }
         }
+    }
+
+    fn tab_insert_pos_for_x(&self, mouse_x: u16) -> usize {
+        let areas = &self.click_regions.header.tab_areas;
+        if areas.is_empty() {
+            return 0;
+        }
+        // Find the tab area the mouse is over and decide left/right half
+        for (area, idx) in areas {
+            let mid = area.x + area.width / 2;
+            if mouse_x <= mid {
+                return *idx;
+            }
+            if mouse_x <= area.x + area.width {
+                return idx + 1;
+            }
+        }
+        areas.len()
+    }
+
+    fn reorder_tab(&mut self, from: usize, mut to: usize) {
+        if from == to || from + 1 == to {
+            return;
+        }
+        if from < to {
+            to -= 1;
+        }
+        if to >= self.tab_order.len() {
+            return;
+        }
+        let tab = self.tab_order.remove(from);
+        self.tab_order.insert(to, tab);
+        self.save_open_tabs();
     }
 
     fn next_tab(&mut self) {

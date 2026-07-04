@@ -24,6 +24,7 @@ pub struct HeaderRegion {
     pub logout_link: Option<Rect>,
     pub tab_areas: Vec<(Rect, usize)>,
     pub tab_add: Option<Rect>,
+    pub tab_row_y: Option<u16>,
 }
 
 #[derive(Default)]

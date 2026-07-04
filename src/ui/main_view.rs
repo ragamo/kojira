@@ -133,7 +133,19 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut x = area.x;
     let mut tab_areas: Vec<(Rect, usize)> = Vec::new();
 
+    let drag_insert = if app.tab_dragging.is_some() { app.tab_drag_insert_pos } else { None };
+
     for (global_idx, tab) in app.tab_order.clone().iter().enumerate() {
+        // Draw insert indicator before this tab if needed
+        if drag_insert == Some(global_idx) {
+            let ind_x = x.saturating_sub(1);
+            let ind_area = Rect { x: ind_x, y: area.y, width: 1, height: 1 };
+            frame.render_widget(
+                Paragraph::new(Span::styled("|", Style::default().fg(t.accent).add_modifier(Modifier::BOLD))),
+                ind_area,
+            );
+        }
+
         let (label, is_active) = match tab {
             Tab::List(id) => {
                 let label = app.list_tabs.iter()
@@ -166,6 +178,16 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
         x += w + 1;
     }
 
+    // Insert indicator at the end
+    if drag_insert == Some(app.tab_order.len()) {
+        let ind_x = x.saturating_sub(1);
+        let ind_area = Rect { x: ind_x, y: area.y, width: 1, height: 1 };
+        frame.render_widget(
+            Paragraph::new(Span::styled("|", Style::default().fg(t.accent).add_modifier(Modifier::BOLD))),
+            ind_area,
+        );
+    }
+
     // "+ new tab" button
     let add_label = " + new tab ";
     let add_w = add_label.len() as u16;
@@ -180,6 +202,7 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     app.click_regions.header.tab_add = Some(add_area);
 
     app.click_regions.header.tab_areas = tab_areas;
+    app.click_regions.header.tab_row_y = Some(area.y);
 }
 
 fn render_content(frame: &mut Frame, app: &mut App, area: Rect) {
