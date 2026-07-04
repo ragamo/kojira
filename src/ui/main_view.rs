@@ -70,6 +70,26 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             width: splits[1].width,
             height: 2,
         });
+    } else if app.create_modal_open {
+        if app.create_panel_height == 0 {
+            app.create_panel_height = (chunks[4].height * 50 / 100).max(12);
+        }
+        let panel_h = app.create_panel_height.min(chunks[4].height.saturating_sub(4));
+        let content_h = chunks[4].height.saturating_sub(panel_h);
+        let splits = Layout::vertical([
+            Constraint::Length(content_h),
+            Constraint::Length(panel_h),
+        ])
+        .split(chunks[4]);
+        render_content(frame, app, splits[0]);
+        crate::ui::create_modal::render(frame, app, splits[1]);
+        let border_y = splits[0].y + splits[0].height.saturating_sub(1);
+        app.create_resize_area = Some(Rect {
+            x: splits[1].x,
+            y: border_y,
+            width: splits[1].width,
+            height: 2,
+        });
     } else {
         app.detail_height = 0;
         render_content(frame, app, chunks[4]);

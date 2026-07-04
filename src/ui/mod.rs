@@ -4,6 +4,7 @@ pub mod board_view;
 pub mod click_regions;
 pub mod create_modal;
 pub mod detail_panel;
+pub mod editor_widget;
 pub mod find_modal;
 pub mod main_view;
 pub mod settings_modal;
@@ -21,9 +22,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     if app.find_modal_open {
         find_modal::render(frame, app);
-    }
-    if app.create_modal_open {
-        create_modal::render(frame, app);
     }
     if app.auth_open {
         auth_modal::render(frame, app);

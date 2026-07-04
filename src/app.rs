@@ -78,9 +78,7 @@ pub enum CreateField {
 
 pub struct CreateModalState {
     pub title: String,
-    pub description: Vec<String>,
-    pub description_cursor_row: usize,
-    pub description_cursor_col: usize,
+    pub description_editor: SimpleEditor,
     pub assignees: Vec<crate::provider::types::JiraUser>,
     pub assignee_idx: Option<usize>,
     pub epics: Vec<crate::provider::types::JiraIssue>,
@@ -98,9 +96,7 @@ impl Default for CreateModalState {
     fn default() -> Self {
         Self {
             title: String::new(),
-            description: vec![String::new()],
-            description_cursor_row: 0,
-            description_cursor_col: 0,
+            description_editor: SimpleEditor::default(),
             assignees: Vec::new(),
             assignee_idx: None,
             epics: Vec::new(),
@@ -353,9 +349,15 @@ pub struct App {
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
 
-    // Create issue modal
+    // Create issue panel
     pub create_modal_open: bool,
     pub create_modal: CreateModalState,
+    pub create_panel_height: u16,
+    pub create_resize_area: Option<Rect>,
+    pub create_dragging: bool,
+    pub create_close_area: Option<Rect>,
+    pub create_field_areas: Vec<(Rect, CreateField)>,
+    pub create_dropdown_areas: Vec<Rect>,
 }
 
 impl App {
@@ -568,6 +570,12 @@ impl App {
 
             create_modal_open: false,
             create_modal: CreateModalState::default(),
+            create_panel_height: 0,
+            create_resize_area: None,
+            create_dragging: false,
+            create_close_area: None,
+            create_field_areas: Vec::new(),
+            create_dropdown_areas: Vec::new(),
 
             config,
         }
@@ -1007,8 +1015,11 @@ impl App {
     }
 
     fn open_create_modal(&mut self) {
+        self.detail_open = false;
+        self.detail_issue = None;
         self.create_modal_open = true;
         self.create_modal = CreateModalState::default();
+        self.create_panel_height = 0;
         self.focus = FocusLayer::CreateModal;
         if let Some(project_key) = self.active_project_key() {
             self.load_assignable_users(project_key.clone());
@@ -1091,7 +1102,7 @@ impl App {
             self.create_modal.error = Some("Title is required".into());
             return;
         }
-        let description = self.create_modal.description.join("\n");
+        let description = self.create_modal.description_editor.to_text();
         let assignee_id = self
             .create_modal
             .assignee_idx
@@ -1133,6 +1144,12 @@ impl App {
 
     fn handle_create_key(&mut self, key: KeyEvent) {
         use crossterm::event::KeyCode;
+
+        // Ctrl+S to submit
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            self.submit_create_issue();
+            return;
+        }
 
         if key.code == KeyCode::Esc {
             if self.create_modal.list_open {
@@ -1181,6 +1198,22 @@ impl App {
             return;
         }
 
+        // Delegate description editing to SimpleEditor
+        if self.create_modal.active_field == CreateField::Description {
+            match key.code {
+                KeyCode::Tab => {
+                    self.create_modal.active_field = CreateField::Assignee;
+                }
+                KeyCode::BackTab => {
+                    self.create_modal.active_field = CreateField::Title;
+                }
+                _ => {
+                    self.create_modal.description_editor.input(key);
+                }
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Tab => {
                 self.create_modal.active_field = match self.create_modal.active_field {
@@ -1221,85 +1254,14 @@ impl App {
                     self.create_modal_open = false;
                     self.focus = FocusLayer::Main;
                 }
-                CreateField::Description => {
-                    let row = self.create_modal.description_cursor_row;
-                    let col = self.create_modal.description_cursor_col;
-                    let rest = self.create_modal.description[row][col..].to_string();
-                    self.create_modal.description[row].truncate(col);
-                    self.create_modal.description.insert(row + 1, rest);
-                    self.create_modal.description_cursor_row += 1;
-                    self.create_modal.description_cursor_col = 0;
-                }
                 _ => {}
             },
-            KeyCode::Char(c) => match self.create_modal.active_field {
-                CreateField::Title => {
-                    self.create_modal.title.push(c);
-                }
-                CreateField::Description => {
-                    let row = self.create_modal.description_cursor_row;
-                    let col = self.create_modal.description_cursor_col;
-                    self.create_modal.description[row].insert(col, c);
-                    self.create_modal.description_cursor_col += 1;
-                }
-                _ => {}
-            },
-            KeyCode::Backspace => match self.create_modal.active_field {
-                CreateField::Title => {
-                    self.create_modal.title.pop();
-                }
-                CreateField::Description => {
-                    let row = self.create_modal.description_cursor_row;
-                    let col = self.create_modal.description_cursor_col;
-                    if col > 0 {
-                        self.create_modal.description[row].remove(col - 1);
-                        self.create_modal.description_cursor_col -= 1;
-                    } else if row > 0 {
-                        let line = self.create_modal.description.remove(row);
-                        self.create_modal.description_cursor_row -= 1;
-                        let prev_len = self.create_modal.description[row - 1].len();
-                        self.create_modal.description[row - 1].push_str(&line);
-                        self.create_modal.description_cursor_col = prev_len;
-                    }
-                }
-                _ => {}
-            },
-            KeyCode::Up if self.create_modal.active_field == CreateField::Description => {
-                if self.create_modal.description_cursor_row > 0 {
-                    self.create_modal.description_cursor_row -= 1;
-                    let len = self.create_modal.description[self.create_modal.description_cursor_row].len();
-                    self.create_modal.description_cursor_col = self.create_modal.description_cursor_col.min(len);
-                }
+            KeyCode::Char(c) if self.create_modal.active_field == CreateField::Title => {
+                self.create_modal.title.push(c);
             }
-            KeyCode::Down if self.create_modal.active_field == CreateField::Description => {
-                if self.create_modal.description_cursor_row < self.create_modal.description.len() - 1 {
-                    self.create_modal.description_cursor_row += 1;
-                    let len = self.create_modal.description[self.create_modal.description_cursor_row].len();
-                    self.create_modal.description_cursor_col = self.create_modal.description_cursor_col.min(len);
-                }
+            KeyCode::Backspace if self.create_modal.active_field == CreateField::Title => {
+                self.create_modal.title.pop();
             }
-            KeyCode::Left => match self.create_modal.active_field {
-                CreateField::Title => {
-                    // no cursor tracking for title (append-only style like auth modal)
-                }
-                CreateField::Description => {
-                    if self.create_modal.description_cursor_col > 0 {
-                        self.create_modal.description_cursor_col -= 1;
-                    }
-                }
-                _ => {}
-            },
-            KeyCode::Right => match self.create_modal.active_field {
-                CreateField::Title => {}
-                CreateField::Description => {
-                    let row = self.create_modal.description_cursor_row;
-                    let len = self.create_modal.description[row].len();
-                    if self.create_modal.description_cursor_col < len {
-                        self.create_modal.description_cursor_col += 1;
-                    }
-                }
-                _ => {}
-            },
             _ => {}
         }
     }
@@ -1846,6 +1808,14 @@ impl App {
                 }
                 return;
             }
+            if self.create_dragging {
+                if let Some(resize_area) = self.create_resize_area {
+                    let panel_bottom = resize_area.y + self.create_panel_height;
+                    let new_height = panel_bottom.saturating_sub(pos.1);
+                    self.create_panel_height = new_height.max(6).min(panel_bottom.saturating_sub(6));
+                }
+                return;
+            }
             if self.tab_dragging.is_some() {
                 self.tab_drag_insert_pos = Some(self.tab_insert_pos_for_x(pos.0));
                 return;
@@ -1859,6 +1829,7 @@ impl App {
 
         if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
             self.detail_dragging = false;
+            self.create_dragging = false;
             if let Some(from) = self.tab_dragging.take() {
                 if let Some(to) = self.tab_drag_insert_pos.take() {
                     self.reorder_tab(from, to);
@@ -1982,6 +1953,62 @@ impl App {
                 if hit(pos, self.detail_resize_area) {
                     self.detail_dragging = true;
                     return;
+                }
+                if hit(pos, self.create_resize_area) {
+                    self.create_dragging = true;
+                    return;
+                }
+                if hit(pos, self.create_close_area) {
+                    self.create_modal_open = false;
+                    self.focus = FocusLayer::Main;
+                    return;
+                }
+                if self.create_modal_open {
+                    // Click on dropdown items
+                    if self.create_modal.list_open {
+                        for (i, area) in self.create_dropdown_areas.iter().enumerate() {
+                            if hit(pos, Some(*area)) {
+                                match self.create_modal.active_field {
+                                    CreateField::Assignee => {
+                                        self.create_modal.assignee_idx = Some(i);
+                                    }
+                                    CreateField::Epic => {
+                                        self.create_modal.epic_idx = Some(i);
+                                    }
+                                    CreateField::Priority => {
+                                        self.create_modal.priority_idx = i;
+                                    }
+                                    _ => {}
+                                }
+                                self.create_modal.list_open = false;
+                                return;
+                            }
+                        }
+                        self.create_modal.list_open = false;
+                        return;
+                    }
+                    // Click on field areas
+                    for (area, field) in &self.create_field_areas {
+                        if hit(pos, Some(*area)) {
+                            let clicked_field = *field;
+                            match clicked_field {
+                                CreateField::Assignee | CreateField::Epic | CreateField::Priority => {
+                                    self.create_modal.active_field = clicked_field;
+                                    self.create_modal.list_open = true;
+                                    self.create_modal.list_scroll = match clicked_field {
+                                        CreateField::Assignee => self.create_modal.assignee_idx.unwrap_or(0),
+                                        CreateField::Epic => self.create_modal.epic_idx.unwrap_or(0),
+                                        CreateField::Priority => self.create_modal.priority_idx,
+                                        _ => 0,
+                                    };
+                                }
+                                _ => {
+                                    self.create_modal.active_field = clicked_field;
+                                }
+                            }
+                            return;
+                        }
+                    }
                 }
                 for (i, tab_area) in self.detail_tab_areas.iter().enumerate() {
                     if hit(pos, Some(*tab_area)) {
@@ -2195,6 +2222,7 @@ impl App {
     }
 
     pub fn open_detail_for_issue(&mut self, issue: &JiraIssue) {
+        self.create_modal_open = false;
         let key = issue.key.clone();
         self.detail_issue = Some(issue.clone());
         self.detail_description = None;
