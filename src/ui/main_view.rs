@@ -106,21 +106,19 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     let bg_block = Block::default().style(Style::default().bg(header_bg));
     frame.render_widget(bg_block, area);
 
-    // Left: " kojira │ settings │ create"
-    let settings_label = " settings";
-    let settings_w = settings_label.len() as u16;
+    // Left: " kojira │ create"
     let create_label = " create";
     let create_w = create_label.len() as u16;
     let left_line = Line::from(vec![
         Span::styled(" kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
         Span::styled(" │", Style::default().fg(t.text_dim)),
-        Span::styled(settings_label, Style::default().fg(t.text_dim)),
-        Span::styled(" │", Style::default().fg(t.text_dim)),
         Span::styled(create_label, Style::default().fg(t.text_dim)),
     ]);
     frame.render_widget(Paragraph::new(left_line), area);
 
-    // Right: "@author  logout" or "login"
+    // Right: "@author  logout │ settings " or "login │ settings "
+    let settings_label = "settings ";
+    let settings_w = settings_label.len() as u16;
     let right_line = if app.logged_in {
         let name = app
             .user_display_name
@@ -129,26 +127,22 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
             .unwrap_or("user");
         Line::from(vec![
             Span::styled(format!("@{}", name), Style::default().fg(t.success)),
-            Span::styled("  logout ", Style::default().fg(t.text_dim)),
+            Span::styled("  logout", Style::default().fg(t.text_dim)),
+            Span::styled(" │ ", Style::default().fg(t.text_dim)),
+            Span::styled(settings_label, Style::default().fg(t.text_dim)),
         ])
     } else {
         Line::from(vec![
-            Span::styled("login ", Style::default().fg(t.text_dim)),
+            Span::styled("login", Style::default().fg(t.text_dim)),
+            Span::styled(" │ ", Style::default().fg(t.text_dim)),
+            Span::styled(settings_label, Style::default().fg(t.text_dim)),
         ])
     };
     frame.render_widget(Paragraph::new(right_line).alignment(Alignment::Right), area);
 
     // Click regions
-    // "settings" starts at x = len(" kojira │") = 9
-    let settings_x = area.x + 9;
-    app.click_regions.header.settings_link = Some(Rect {
-        x: settings_x,
-        y: area.y,
-        width: settings_w,
-        height: 1,
-    });
-    // "create" starts after " settings │" = settings_x + settings_w + 2
-    let create_x = settings_x + settings_w + 2;
+    // "create" starts at x = len(" kojira │") = 9
+    let create_x = area.x + 9;
     app.click_regions.header.create_link = Some(Rect {
         x: create_x,
         y: area.y,
@@ -156,18 +150,31 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
         height: 1,
     });
 
+    // "settings" is at the far right
+    app.click_regions.header.settings_link = Some(Rect {
+        x: area.x + area.width.saturating_sub(settings_w),
+        y: area.y,
+        width: settings_w,
+        height: 1,
+    });
+
     if app.logged_in {
-        let logout_w = 7u16; // "logout "
+        // "logout" is before " │ settings "
+        let logout_label = "logout";
+        let logout_w = logout_label.len() as u16;
+        let logout_x = area.x + area.width.saturating_sub(settings_w + 3 + logout_w);
         app.click_regions.header.logout_link = Some(Rect {
-            x: area.x + area.width.saturating_sub(logout_w),
+            x: logout_x,
             y: area.y,
             width: logout_w,
             height: 1,
         });
     } else {
-        let login_w = 6u16; // "login "
+        let login_label = "login";
+        let login_w = login_label.len() as u16;
+        let login_x = area.x + area.width.saturating_sub(settings_w + 3 + login_w);
         app.click_regions.header.login_link = Some(Rect {
-            x: area.x + area.width.saturating_sub(login_w),
+            x: login_x,
             y: area.y,
             width: login_w,
             height: 1,
