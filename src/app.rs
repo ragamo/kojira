@@ -2470,10 +2470,36 @@ impl App {
             Some(i) => i.key.clone(),
             None => return,
         };
-        let (id, _) = match edit.items.get(edit.selected) {
+        let (id, display) = match edit.items.get(edit.selected) {
             Some(item) => item.clone(),
             None => return,
         };
+
+        // Optimistic update of detail_issue
+        if let Some(ref mut issue) = self.detail_issue {
+            match edit.field {
+                DetailField::Assignee => {
+                    issue.fields.assignee = Some(crate::provider::types::JiraUser {
+                        account_id: id.clone(),
+                        display_name: display.clone(),
+                        email: None,
+                    });
+                }
+                DetailField::Parent => {
+                    issue.fields.parent = Some(crate::provider::types::JiraParentField {
+                        key: id.clone(),
+                        fields: Some(crate::provider::types::JiraParentFields {
+                            summary: display.clone(),
+                        }),
+                    });
+                }
+                DetailField::Priority => {
+                    issue.fields.priority = Some(crate::provider::types::JiraPriority {
+                        name: id.clone(),
+                    });
+                }
+            }
+        }
 
         let fields = match edit.field {
             DetailField::Assignee => serde_json::json!({ "assignee": { "accountId": id } }),
