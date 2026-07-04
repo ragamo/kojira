@@ -151,7 +151,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         let mut cumulative_heights: Vec<u16> = Vec::with_capacity(visible_issues.len());
         for issue in &visible_issues {
             let summary_lines = wrap_str(&issue.fields.summary, inner.width as usize);
-            let card_h = (summary_lines.len() as u16) + 2 + 1; // card + spacing
+            let has_epic = issue.fields.parent.is_some();
+            let card_h = (summary_lines.len() as u16) + 1 + if has_epic { 1 } else { 0 } + 1; // card + spacing
             cumulative_heights.push(card_h);
         }
         let total_height: u16 = cumulative_heights.iter().sum();
@@ -183,7 +184,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
 
             // Row 1+: Summary (wrapped)
             let summary_lines = wrap_str(&issue.fields.summary, content_width);
-            let card_height = (summary_lines.len() as u16) + 2; // summary + epic + key/assignee
+            let has_epic = issue.fields.parent.is_some();
+            let card_height = (summary_lines.len() as u16) + 1 + if has_epic { 1 } else { 0 }; // summary + key/assignee [+ epic]
 
             if y_offset + card_height > inner.height {
                 break;
@@ -201,8 +203,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 .map(|s| Line::from(Span::styled(s.as_str(), Style::default().fg(t.text))))
                 .collect();
 
-            // Row 2: Epic with background color
-            let line2 = if let Some(ref parent) = issue.fields.parent {
+            // Row 2: Epic with background color (only if present)
+            if let Some(ref parent) = issue.fields.parent {
                 let epic_name = parent
                     .fields
                     .as_ref()
@@ -210,10 +212,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                     .unwrap_or(&parent.key);
                 let bg = color_for(epic_name, EPIC_COLORS);
                 let display = format!(" {} ", truncate_str(epic_name, content_width.saturating_sub(2)));
-                Line::from(Span::styled(display, Style::default().fg(Color::Rgb(30, 30, 30)).bg(bg)))
-            } else {
-                Line::from(Span::styled("", Style::default().fg(t.text_dim)))
-            };
+                lines.push(Line::from(Span::styled(display, Style::default().fg(Color::Rgb(30, 30, 30)).bg(bg))));
+            }
 
             // Row 3: Key left, Assignee right
             let key_span = Span::styled(&issue.key, Style::default().fg(t.accent));
@@ -239,7 +239,6 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 Span::styled(assignee_display, Style::default().fg(assignee_color)),
             ]);
 
-            lines.push(line2);
             lines.push(line3);
 
             let mouse = app.mouse_pos;
