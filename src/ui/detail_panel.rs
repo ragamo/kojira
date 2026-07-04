@@ -480,21 +480,25 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
     let w = inner.width.saturating_sub(1);
     let mut y = inner.y;
 
-    // Assignee (clickable)
+    // Assignee (clickable - bordered)
     let assignee = issue
         .fields
         .assignee
         .as_ref()
         .map(|a| a.display_name.as_str())
         .unwrap_or("-");
-    let assignee_area = Rect { x, y, width: w, height: 2 };
-    frame.render_widget(Paragraph::new(Span::styled("assignee", label_style)), Rect { x, y, width: w, height: 1 });
-    y += 1;
-    frame.render_widget(Paragraph::new(Span::styled(assignee, Style::default().fg(t.warning))), Rect { x, y, width: w, height: 1 });
+    let assignee_area = Rect { x, y, width: w, height: 3 };
+    let assignee_widget = Paragraph::new(Span::styled(assignee, Style::default().fg(t.warning)))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(t.border))
+            .title(" assignee ")
+            .title_style(label_style));
+    frame.render_widget(assignee_widget, assignee_area);
     app.detail_field_areas.push((assignee_area, DetailField::Assignee));
-    y += 2;
+    y += 4;
 
-    // Reporter (read-only)
+    // Reporter (read-only - no border)
     if let Some(ref meta) = app.detail_metadata {
         if let Some(ref reporter) = meta.reporter {
             frame.render_widget(Paragraph::new(Span::styled("reporter", label_style)), Rect { x, y, width: w, height: 1 });
@@ -504,36 +508,44 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
         }
     }
 
-    // Parent/Epic (clickable)
+    // Parent/Epic (clickable - bordered)
     let parent_display = if let Some(ref parent) = issue.fields.parent {
         let epic_name = parent.fields.as_ref().map(|f| f.summary.as_str()).unwrap_or(&parent.key);
         format!("{} {}", parent.key, epic_name)
     } else {
         "-".to_string()
     };
-    let parent_area = Rect { x, y, width: w, height: 2 };
-    frame.render_widget(Paragraph::new(Span::styled("parent", label_style)), Rect { x, y, width: w, height: 1 });
-    y += 1;
-    frame.render_widget(Paragraph::new(Span::styled(&parent_display, Style::default().fg(t.accent))), Rect { x, y, width: w, height: 1 });
+    let parent_area = Rect { x, y, width: w, height: 3 };
+    let parent_widget = Paragraph::new(Span::styled(&parent_display, Style::default().fg(t.accent)))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(t.border))
+            .title(" parent ")
+            .title_style(label_style));
+    frame.render_widget(parent_widget, parent_area);
     app.detail_field_areas.push((parent_area, DetailField::Parent));
-    y += 2;
+    y += 4;
 
-    // Priority (clickable)
+    // Priority (clickable - bordered)
     let priority_name = issue.fields.priority.as_ref().map(|p| p.name.as_str()).unwrap_or("-");
-    let priority_area = Rect { x, y, width: w, height: 2 };
-    frame.render_widget(Paragraph::new(Span::styled("priority", label_style)), Rect { x, y, width: w, height: 1 });
-    y += 1;
-    frame.render_widget(Paragraph::new(Span::styled(priority_name, value_style)), Rect { x, y, width: w, height: 1 });
+    let priority_area = Rect { x, y, width: w, height: 3 };
+    let priority_widget = Paragraph::new(Span::styled(priority_name, value_style))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(t.border))
+            .title(" priority ")
+            .title_style(label_style));
+    frame.render_widget(priority_widget, priority_area);
     app.detail_field_areas.push((priority_area, DetailField::Priority));
-    y += 2;
+    y += 4;
 
-    // Type (read-only)
+    // Type (read-only - no border)
     frame.render_widget(Paragraph::new(Span::styled("type", label_style)), Rect { x, y, width: w, height: 1 });
     y += 1;
     frame.render_widget(Paragraph::new(Span::styled(&issue.fields.issue_type.name, value_style)), Rect { x, y, width: w, height: 1 });
     y += 2;
 
-    // Labels (read-only)
+    // Labels (read-only - no border)
     if let Some(ref meta) = app.detail_metadata {
         if !meta.labels.is_empty() {
             frame.render_widget(Paragraph::new(Span::styled("labels", label_style)), Rect { x, y, width: w, height: 1 });
@@ -543,7 +555,7 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
         }
     }
 
-    // Dates (read-only)
+    // Dates (read-only - no border)
     if let Some(ref meta) = app.detail_metadata {
         if let Some(ref created) = meta.created {
             let date = if created.len() >= 10 { &created[..10] } else { created };
