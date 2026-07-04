@@ -310,6 +310,8 @@ pub struct App {
     pub detail_url_area: Option<Rect>,
     pub detail_dragging: bool,
     pub detail_editing: bool,
+    pub detail_edit_focus: u8, // 0 = title, 1 = description
+    pub detail_title_input: String,
     pub detail_editor: SimpleEditor,
     pub detail_transitions: Vec<JiraTransition>,
     pub detail_transition_open: bool,
@@ -542,6 +544,8 @@ impl App {
             detail_url_area: None,
             detail_dragging: false,
             detail_editing: false,
+            detail_edit_focus: 0,
+            detail_title_input: String::new(),
             detail_editor: SimpleEditor::default(),
             detail_transitions: Vec::new(),
             detail_transition_open: false,
@@ -943,6 +947,8 @@ impl App {
             KeyCode::Char('e') if self.detail_open && self.detail_tab == 0 => {
                 let desc = self.detail_description.clone().unwrap_or_default();
                 self.detail_editor.load(&desc);
+                self.detail_title_input = self.detail_issue.as_ref().map(|i| i.fields.summary.clone()).unwrap_or_default();
+                self.detail_edit_focus = 0;
                 self.detail_editing = true;
             }
             KeyCode::Right | KeyCode::Char('l') if self.detail_open && !self.detail_transition_open => {
@@ -2418,6 +2424,46 @@ impl App {
         self.load_issue_detail(&key);
     }
 
+    fn save_issue_title_and_description(&self, issue_key: &str, title: &str, description: &str) {
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+        let key = issue_key.to_string();
+        let title = title.to_string();
+        let desc = description.to_string();
+
+        tokio::spawn(async move {
+            let provider = JiraProvider::new(client, base_url, email, token);
+            let desc_adf = serde_json::json!({
+                "type": "doc",
+                "version": 1,
+                "content": desc.lines().map(|line| {
+                    if line.is_empty() {
+                        serde_json::json!({ "type": "paragraph", "content": [] })
+                    } else {
+                        serde_json::json!({
+                            "type": "paragraph",
+                            "content": [{ "type": "text", "text": line }]
+                        })
+                    }
+                }).collect::<Vec<_>>()
+            });
+            let fields = serde_json::json!({
+                "summary": title,
+                "description": desc_adf
+            });
+            let result = provider.update_issue_fields(&key, fields).await;
+            let _ = tx.send(AppMessage::DescriptionUpdated(key, result));
+        });
+    }
+
     pub fn save_description(&self, issue_key: &str, text: String) {
         let tx = self.message_tx.clone();
         let client = self.http_client.clone();
@@ -2440,10 +2486,13 @@ impl App {
 
     fn handle_editor_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
-            let text = self.detail_editor.to_text();
-            if let Some(ref issue) = self.detail_issue.clone() {
-                self.detail_description = Some(text.clone());
-                self.save_description(&issue.key, text);
+            let desc = self.detail_editor.to_text();
+            let title = self.detail_title_input.clone();
+            if let Some(ref mut issue) = self.detail_issue {
+                let key = issue.key.clone();
+                self.detail_description = Some(desc.clone());
+                issue.fields.summary = title.clone();
+                self.save_issue_title_and_description(&key, &title, &desc);
             }
             self.detail_editing = false;
             return;
@@ -2452,7 +2501,25 @@ impl App {
             self.detail_editing = false;
             return;
         }
-        self.detail_editor.input(key);
+        if key.code == KeyCode::Tab {
+            self.detail_edit_focus = if self.detail_edit_focus == 0 { 1 } else { 0 };
+            return;
+        }
+        if key.code == KeyCode::BackTab {
+            self.detail_edit_focus = if self.detail_edit_focus == 0 { 1 } else { 0 };
+            return;
+        }
+        if self.detail_edit_focus == 0 {
+            // Title input (single line)
+            match key.code {
+                KeyCode::Char(c) => self.detail_title_input.push(c),
+                KeyCode::Backspace => { self.detail_title_input.pop(); }
+                KeyCode::Enter => { self.detail_edit_focus = 1; }
+                _ => {}
+            }
+        } else {
+            self.detail_editor.input(key);
+        }
     }
 
     fn load_issue_detail(&self, issue_key: &str) {

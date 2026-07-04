@@ -289,12 +289,33 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let desc_area = content_splits[0];
     let meta_area = content_splits[1];
 
-    // If editing, render inline editor and metadata, then return
+    // If editing, render title input + description editor and metadata, then return
     if app.detail_editing && app.detail_tab == 0 {
-        crate::ui::editor_widget::render_editor(frame, &mut app.detail_editor, desc_area, t, true);
+        let edit_splits = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ]).split(desc_area);
+
+        // Title input
+        let title_focused = app.detail_edit_focus == 0;
+        let title_border = if title_focused { t.accent } else { t.border };
+        let cursor = if title_focused { "▌" } else { "" };
+        let title_widget = Paragraph::new(format!("{}{}", app.detail_title_input, cursor))
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(title_border)))
+            .style(Style::default().fg(t.text));
+        frame.render_widget(title_widget, edit_splits[0]);
+
+        // Description editor
+        let desc_focused = app.detail_edit_focus == 1;
+        crate::ui::editor_widget::render_editor(frame, &mut app.detail_editor, edit_splits[1], t, desc_focused);
+
         render_metadata(frame, app, t, &issue, meta_area);
         let edit_statusbar = Line::from(vec![
-            Span::styled(" Ctrl+S", Style::default().fg(t.accent)),
+            Span::styled(" Tab", Style::default().fg(t.accent)),
+            Span::styled(" switch  ", Style::default().fg(t.text_dim)),
+            Span::styled("Ctrl+S", Style::default().fg(t.accent)),
             Span::styled(" save  ", Style::default().fg(t.text_dim)),
             Span::styled("Esc", Style::default().fg(t.accent)),
             Span::styled(" cancel", Style::default().fg(t.text_dim)),
