@@ -94,6 +94,8 @@ pub struct App {
 
     // Detail panel
     pub detail_open: bool,
+    pub detail_tab: usize,
+    pub detail_tab_areas: Vec<Rect>,
     pub detail_issue: Option<JiraIssue>,
     pub detail_description: Option<String>,
     pub detail_metadata: Option<IssueMetadata>,
@@ -225,6 +227,8 @@ impl App {
             column_order: Vec::new(),
 
             detail_open: false,
+            detail_tab: 0,
+            detail_tab_areas: Vec::new(),
             detail_issue: None,
             detail_description: None,
             detail_metadata: None,
@@ -510,6 +514,14 @@ impl App {
             KeyCode::Char('t') if self.detail_open && !self.detail_transitions.is_empty() => {
                 self.detail_transition_open = !self.detail_transition_open;
                 self.detail_transition_selected = 0;
+            }
+            KeyCode::Right | KeyCode::Char('l') if self.detail_open && !self.detail_transition_open => {
+                self.detail_tab = (self.detail_tab + 1) % 4;
+                self.detail_scroll = 0;
+            }
+            KeyCode::Left | KeyCode::Char('h') if self.detail_open && !self.detail_transition_open => {
+                self.detail_tab = (self.detail_tab + 3) % 4;
+                self.detail_scroll = 0;
             }
             KeyCode::Down | KeyCode::Char('j') if self.detail_transition_open => {
                 if self.detail_transition_selected < self.detail_transitions.len().saturating_sub(1) {
@@ -1050,6 +1062,13 @@ impl App {
                     self.detail_dragging = true;
                     return;
                 }
+                for (i, tab_area) in self.detail_tab_areas.iter().enumerate() {
+                    if hit(pos, Some(*tab_area)) {
+                        self.detail_tab = i;
+                        self.detail_scroll = 0;
+                        return;
+                    }
+                }
                 if hit(pos, self.detail_url_area) {
                     if let Some(ref issue) = self.detail_issue {
                         let base_url = self
@@ -1276,6 +1295,7 @@ impl App {
         self.detail_description = None;
         self.detail_metadata = None;
         self.detail_open = true;
+        self.detail_tab = 0;
         self.detail_height = 0;
         self.detail_scroll = 0;
         self.detail_transitions.clear();

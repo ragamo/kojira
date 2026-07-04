@@ -146,8 +146,10 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let chunks = Layout::vertical([
         Constraint::Length(header_height),
-        Constraint::Length(1),
-        Constraint::Min(0),
+        Constraint::Length(1), // blank
+        Constraint::Length(1), // tabs
+        Constraint::Length(1), // separator
+        Constraint::Min(0),   // content
     ])
     .split(inner);
 
@@ -160,6 +162,29 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     });
 
     frame.render_widget(Paragraph::new(header_lines), chunks[0]);
+
+    // Tabs row
+    const DETAIL_TABS: &[&str] = &["overview", "comments", "history", "transitions"];
+    let tab_area = chunks[2];
+    let mut tab_click_areas: Vec<Rect> = Vec::new();
+    let mut x_offset = tab_area.x;
+    let mut tab_spans: Vec<Span> = Vec::new();
+    for (i, &label) in DETAIL_TABS.iter().enumerate() {
+        let is_active = i == app.detail_tab;
+        let style = if is_active {
+            Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(t.text_dim)
+        };
+        let text = format!(" {} ", label);
+        let width = text.len() as u16;
+        tab_click_areas.push(Rect { x: x_offset, y: tab_area.y, width, height: 1 });
+        tab_spans.push(Span::styled(text, style));
+        tab_spans.push(Span::raw(" "));
+        x_offset += width + 1;
+    }
+    app.detail_tab_areas = tab_click_areas;
+    frame.render_widget(Paragraph::new(Line::from(tab_spans)), tab_area);
 
     // Transition button (right side of header, 3 rows tall like lazyglab merge btn)
     let mut transition_btn_area: Option<Rect> = None;
@@ -222,14 +247,14 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     // Separator
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "─".repeat(chunks[1].width as usize),
+            "─".repeat(chunks[3].width as usize),
             Style::default().fg(t.border),
         )),
-        chunks[1],
+        chunks[3],
     );
 
-    // Split content into description (left) and metadata (right)
-    let content_area = chunks[2];
+    // Split content into main (left) and metadata (right)
+    let content_area = chunks[4];
     let meta_width = 28u16;
     let content_splits = Layout::horizontal([
         Constraint::Min(20),
@@ -240,16 +265,36 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let desc_area = content_splits[0];
     let meta_area = content_splits[1];
 
-    // Description
-    let desc = if let Some(ref desc) = app.detail_description {
-        desc.clone()
-    } else {
-        "No description".into()
+    // Tab content
+    let content_text = match app.detail_tab {
+        0 => {
+            // Overview: description
+            if let Some(ref desc) = app.detail_description {
+                desc.clone()
+            } else {
+                "Loading...".into()
+            }
+        }
+        1 => "Comments not yet implemented".into(),
+        2 => "History not yet implemented".into(),
+        3 => {
+            // Transitions list
+            if app.detail_transitions.is_empty() {
+                "No transitions available".into()
+            } else {
+                app.detail_transitions
+                    .iter()
+                    .map(|tr| format!("  → {}", tr.name))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        }
+        _ => String::new(),
     };
 
     let desc_area_height = desc_area.height;
     let desc_area_width = desc_area.width as usize;
-    let total_lines: u16 = desc
+    let total_lines: u16 = content_text
         .lines()
         .map(|line| {
             if line.is_empty() {
@@ -261,11 +306,11 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .sum();
     app.detail_max_scroll = total_lines.saturating_sub(desc_area_height);
 
-    let desc_widget = Paragraph::new(desc)
+    let content_widget = Paragraph::new(content_text)
         .style(Style::default().fg(t.text))
         .wrap(Wrap { trim: false })
         .scroll((app.detail_scroll, 0));
-    frame.render_widget(desc_widget, desc_area);
+    frame.render_widget(content_widget, desc_area);
 
     // Metadata panel
     render_metadata(frame, app, t, &issue, meta_area);
