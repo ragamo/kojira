@@ -282,7 +282,9 @@ fn render_footer(frame: &mut Frame, theme: &Theme, area: Rect) {
         Span::styled("n", Style::default().fg(theme.accent)),
         Span::styled(" new tab ", Style::default().fg(theme.text_dim)),
         Span::styled(",", Style::default().fg(theme.accent)),
-        Span::styled(" settings", Style::default().fg(theme.text_dim)),
+        Span::styled(" settings ", Style::default().fg(theme.text_dim)),
+        Span::styled("c", Style::default().fg(theme.accent)),
+        Span::styled(" create", Style::default().fg(theme.text_dim)),
     ];
 
     let footer = Paragraph::new(Line::from(keys))
