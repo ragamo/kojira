@@ -96,7 +96,11 @@ impl Default for CreateModalState {
     fn default() -> Self {
         Self {
             title: String::new(),
-            description_editor: SimpleEditor::default(),
+            description_editor: {
+                let mut e = SimpleEditor::default();
+                e.load("");
+                e
+            },
             assignees: Vec::new(),
             assignee_idx: None,
             epics: Vec::new(),
