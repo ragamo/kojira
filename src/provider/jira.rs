@@ -321,6 +321,106 @@ impl JiraProvider {
         let data: JiraProjectSearchResponse = resp.json().await?;
         Ok(data.values)
     }
+
+    pub async fn get_assignable_users(&self, project_key: &str) -> Result<Vec<JiraUser>, JiraError> {
+        let url = format!("{}/rest/api/3/user/assignable/search", self.base_url);
+        let resp = self
+            .client
+            .get(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .query(&[("project", project_key), ("maxResults", "50")])
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(JiraError::Auth(format!("HTTP {}", resp.status())));
+        }
+
+        let users: Vec<JiraUser> = resp.json().await?;
+        Ok(users)
+    }
+
+    pub async fn get_epics(&self, project_key: &str) -> Result<Vec<JiraIssue>, JiraError> {
+        let url = format!("{}/rest/api/3/search/jql", self.base_url);
+        let jql = format!("project = {} AND issuetype = Epic ORDER BY updated DESC", project_key);
+        let body = serde_json::json!({
+            "jql": jql,
+            "maxResults": 50,
+            "fields": ["summary", "status", "issuetype", "priority", "assignee", "parent", "updated"]
+        });
+        let resp = self
+            .client
+            .post(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(JiraError::Auth(format!("HTTP {}", resp.status())));
+        }
+
+        let data: JiraSearchResponse = resp.json().await?;
+        Ok(data.issues)
+    }
+
+    pub async fn create_issue(
+        &self,
+        project_key: &str,
+        summary: &str,
+        description: &str,
+        assignee_id: Option<&str>,
+        epic_key: Option<&str>,
+        priority: &str,
+    ) -> Result<String, JiraError> {
+        let url = format!("{}/rest/api/3/issue", self.base_url);
+
+        let desc_adf = serde_json::json!({
+            "type": "doc",
+            "version": 1,
+            "content": [{
+                "type": "paragraph",
+                "content": [{
+                    "type": "text",
+                    "text": description
+                }]
+            }]
+        });
+
+        let mut fields = serde_json::json!({
+            "project": { "key": project_key },
+            "summary": summary,
+            "description": desc_adf,
+            "issuetype": { "name": "Task" },
+            "priority": { "name": priority }
+        });
+
+        if let Some(id) = assignee_id {
+            fields["assignee"] = serde_json::json!({ "accountId": id });
+        }
+        if let Some(key) = epic_key {
+            fields["parent"] = serde_json::json!({ "key": key });
+        }
+
+        let body = serde_json::json!({ "fields": fields });
+
+        let resp = self
+            .client
+            .post(&url)
+            .basic_auth(&self.email, Some(&self.token))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(JiraError::Auth(format!("Create failed: {}", &text[..text.len().min(200)])));
+        }
+
+        let data: serde_json::Value = resp.json().await?;
+        let key = data["key"].as_str().unwrap_or("").to_string();
+        Ok(key)
+    }
 }
 
 pub fn adf_to_text(value: &serde_json::Value) -> String {

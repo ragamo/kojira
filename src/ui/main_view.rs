@@ -86,13 +86,17 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     let bg_block = Block::default().style(Style::default().bg(header_bg));
     frame.render_widget(bg_block, area);
 
-    // Left: " kojira │ settings"
+    // Left: " kojira │ settings │ create"
     let settings_label = " settings";
     let settings_w = settings_label.len() as u16;
+    let create_label = " create";
+    let create_w = create_label.len() as u16;
     let left_line = Line::from(vec![
         Span::styled(" kojira", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
         Span::styled(" │", Style::default().fg(t.text_dim)),
         Span::styled(settings_label, Style::default().fg(t.text_dim)),
+        Span::styled(" │", Style::default().fg(t.text_dim)),
+        Span::styled(create_label, Style::default().fg(t.text_dim)),
     ]);
     frame.render_widget(Paragraph::new(left_line), area);
 
@@ -120,7 +124,15 @@ fn render_header(frame: &mut Frame, app: &mut App, area: Rect) {
     app.click_regions.header.settings_link = Some(Rect {
         x: settings_x,
         y: area.y,
-        width: settings_w as u16,
+        width: settings_w,
+        height: 1,
+    });
+    // "create" starts after " settings │" = settings_x + settings_w + 2
+    let create_x = settings_x + settings_w + 2;
+    app.click_regions.header.create_link = Some(Rect {
+        x: create_x,
+        y: area.y,
+        width: create_w,
         height: 1,
     });
 

@@ -20,6 +20,7 @@ impl ClickRegions {
 #[derive(Default)]
 pub struct HeaderRegion {
     pub settings_link: Option<Rect>,
+    pub create_link: Option<Rect>,
     pub login_link: Option<Rect>,
     pub logout_link: Option<Rect>,
     pub tab_areas: Vec<(Rect, usize)>,
@@ -35,7 +36,7 @@ pub struct BacklogRegion {
 
 #[derive(Default)]
 pub struct BoardCardRegion {
-    pub cards: Vec<(Rect, String)>,
+    pub cards: Vec<(Rect, String, usize)>,
 }
 
 #[derive(Default)]

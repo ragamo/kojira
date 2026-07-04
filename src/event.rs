@@ -29,6 +29,9 @@ pub enum AppMessage {
     TransitionDone(String, Result<(), JiraError>),
     ChangelogLoaded(String, Result<Vec<JiraChangelogEntry>, JiraError>),
     DescriptionUpdated(String, Result<(), JiraError>),
+    AssignableUsersLoaded(Result<Vec<JiraUser>, JiraError>),
+    EpicsLoaded(Result<Vec<JiraIssue>, JiraError>),
+    IssueCreated(Result<String, JiraError>),
 }
 
 pub async fn event_loop(tx: mpsc::UnboundedSender<AppEvent>) -> Result<()> {

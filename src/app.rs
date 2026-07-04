@@ -55,6 +55,7 @@ pub enum FocusLayer {
     Auth,
     Find,
     FindBoardPanel,
+    CreateModal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +63,64 @@ pub enum AuthField {
     Subdomain,
     Email,
     Token,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateField {
+    Title,
+    Description,
+    Assignee,
+    Epic,
+    Priority,
+    Save,
+    Cancel,
+}
+
+pub struct CreateModalState {
+    pub title: String,
+    pub description: Vec<String>,
+    pub description_cursor_row: usize,
+    pub description_cursor_col: usize,
+    pub assignees: Vec<crate::provider::types::JiraUser>,
+    pub assignee_idx: Option<usize>,
+    pub epics: Vec<crate::provider::types::JiraIssue>,
+    pub epic_idx: Option<usize>,
+    pub priority_idx: usize,
+    pub active_field: CreateField,
+    pub list_open: bool,
+    pub list_scroll: usize,
+    pub loading_assignees: bool,
+    pub loading_epics: bool,
+    pub error: Option<String>,
+}
+
+impl Default for CreateModalState {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            description: vec![String::new()],
+            description_cursor_row: 0,
+            description_cursor_col: 0,
+            assignees: Vec::new(),
+            assignee_idx: None,
+            epics: Vec::new(),
+            epic_idx: None,
+            priority_idx: 2, // Medium
+            active_field: CreateField::Title,
+            list_open: false,
+            list_scroll: 0,
+            loading_assignees: false,
+            loading_epics: false,
+            error: None,
+        }
+    }
+}
+
+pub const PRIORITIES: &[&str] = &["Highest", "High", "Medium", "Low", "Lowest"];
+
+pub struct CardDrag {
+    pub issue_key: String,
+    pub source_col: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -286,9 +345,16 @@ pub struct App {
     pub settings_board_field: usize,
     pub mouse_pos: (u16, u16),
     pub board_content_area: Option<Rect>,
+    pub card_dragging: Option<CardDrag>,
+    pub card_drag_target: Option<(usize, usize)>,
+    pub card_drag_transition_target: Option<(String, String)>,
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
+
+    // Create issue modal
+    pub create_modal_open: bool,
+    pub create_modal: CreateModalState,
 }
 
 impl App {
@@ -307,9 +373,23 @@ impl App {
             .position(|t| t.name == theme.name)
             .unwrap_or(0);
 
-        // Derive the project list from persisted open_tabs (deduplicated)
+        // Resolve tabs: prefer user-specific tabs, fallback to global open_tabs
+        let resolved_tabs = {
+            let instance = config.jira.base_url.as_deref().unwrap_or("");
+            let email = config.auth.email.as_deref().unwrap_or("");
+            if !instance.is_empty() && !email.is_empty() {
+                config.jira.user_tabs.iter()
+                    .find(|ut| ut.instance_url == instance && ut.email == email)
+                    .map(|ut| ut.tabs.clone())
+                    .unwrap_or_else(|| config.jira.open_tabs.clone())
+            } else {
+                config.jira.open_tabs.clone()
+            }
+        };
+
+        // Derive the project list from persisted tabs (deduplicated)
         let mut projects: Vec<FavoriteProject> = Vec::new();
-        for tab in &config.jira.open_tabs {
+        for tab in &resolved_tabs {
             let (key, name) = match tab {
                 OpenTab::List { project_key, project_name, .. } => (project_key.clone(), project_name.clone()),
                 OpenTab::Board { project_key, board_name, .. } => (project_key.clone(), board_name.clone()),
@@ -330,7 +410,7 @@ impl App {
         let mut board_tabs: Vec<BoardTab> = Vec::new();
         let mut tab_order: Vec<Tab> = Vec::new();
 
-        for open_tab in config.jira.open_tabs.iter() {
+        for open_tab in resolved_tabs.iter() {
             match open_tab {
                 OpenTab::List { id, project_key, project_name } => {
                     list_tabs.push(ListTab {
@@ -477,9 +557,15 @@ impl App {
             settings_board_field: 0,
             mouse_pos: (0, 0),
             board_content_area: None,
+            card_dragging: None,
+            card_drag_target: None,
+            card_drag_transition_target: None,
             theme_selected,
             theme_confirmed: theme_selected,
             header_bg_confirmed: header_bg_soft,
+
+            create_modal_open: false,
+            create_modal: CreateModalState::default(),
 
             config,
         }
@@ -568,11 +654,34 @@ impl App {
             }
             AppMessage::IssueDetailLoaded(_, Err(_)) => {}
             AppMessage::TransitionsLoaded(key, Ok(transitions)) => {
+                // Handle card drag transition
+                if let Some((drag_key, ref target_col_name)) = self.card_drag_transition_target.clone() {
+                    if drag_key == key {
+                        if let Some(tr) = transitions.iter().find(|t| t.to.name.eq_ignore_ascii_case(&target_col_name) || t.name.eq_ignore_ascii_case(&target_col_name)) {
+                            self.do_transition(&key, &tr.id.clone());
+                        } else {
+                            // No valid transition found — rollback
+                            if let Tab::Board(board_id) = self.active_tab {
+                                self.load_board_data(board_id);
+                            }
+                        }
+                        self.card_drag_transition_target = None;
+                        return;
+                    }
+                }
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_transitions = transitions;
                 }
             }
-            AppMessage::TransitionsLoaded(_, Err(_)) => {}
+            AppMessage::TransitionsLoaded(_, Err(_)) => {
+                // Rollback optimistic update on error
+                if self.card_drag_transition_target.is_some() {
+                    self.card_drag_transition_target = None;
+                    if let Tab::Board(board_id) = self.active_tab {
+                        self.load_board_data(board_id);
+                    }
+                }
+            }
             AppMessage::CommentsLoaded(key, Ok(comments)) => {
                 if self.detail_issue.as_ref().map(|i| &i.key) == Some(&key) {
                     self.detail_comments = comments;
@@ -599,8 +708,39 @@ impl App {
                     self.load_issue_detail(&key.clone());
                     self.reload_all_list_tabs();
                 }
+                // Also reload board if active
+                if let Tab::Board(board_id) = self.active_tab {
+                    self.load_board_data(board_id);
+                }
             }
-            AppMessage::TransitionDone(_, Err(_)) => {}
+            AppMessage::TransitionDone(_, Err(_)) => {
+                // Rollback optimistic update
+                if let Tab::Board(board_id) = self.active_tab {
+                    self.load_board_data(board_id);
+                }
+            }
+            AppMessage::AssignableUsersLoaded(Ok(users)) => {
+                self.create_modal.assignees = users;
+                self.create_modal.loading_assignees = false;
+            }
+            AppMessage::AssignableUsersLoaded(Err(_)) => {
+                self.create_modal.loading_assignees = false;
+            }
+            AppMessage::EpicsLoaded(Ok(epics)) => {
+                self.create_modal.epics = epics;
+                self.create_modal.loading_epics = false;
+            }
+            AppMessage::EpicsLoaded(Err(_)) => {
+                self.create_modal.loading_epics = false;
+            }
+            AppMessage::IssueCreated(Ok(_key)) => {
+                self.create_modal_open = false;
+                self.focus = FocusLayer::Main;
+                self.reload_active_tab();
+            }
+            AppMessage::IssueCreated(Err(e)) => {
+                self.create_modal.error = Some(e.to_string());
+            }
             AppMessage::ColumnOrderLoaded(Err(_)) => {}
             AppMessage::BacklogLoaded(tab_id, Err(e)) => {
                 if let Some(tab) = self.list_tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -701,8 +841,7 @@ impl App {
             FocusLayer::Settings => self.handle_settings_key(key),
             FocusLayer::Find => self.handle_find_key(key),
             FocusLayer::FindBoardPanel => self.handle_find_board_panel_key(key),
-
-
+            FocusLayer::CreateModal => self.handle_create_key(key),
             FocusLayer::Main => self.handle_main_key(key),
         }
     }
@@ -722,6 +861,7 @@ impl App {
             KeyCode::Char('n') => self.open_find(),
             KeyCode::Char('r') => self.refresh_active_tab(),
             KeyCode::Char(',') => self.open_settings(),
+            KeyCode::Char('c') if !self.detail_open => self.open_create_modal(),
             KeyCode::Char('x') => self.close_active_tab(),
             KeyCode::Enter if matches!(self.active_tab, Tab::List(_)) && !self.detail_open => {
                 self.open_detail_from_backlog();
@@ -854,6 +994,304 @@ impl App {
     fn open_settings(&mut self) {
         self.settings_open = true;
         self.focus = FocusLayer::Settings;
+    }
+
+    fn open_create_modal(&mut self) {
+        self.create_modal_open = true;
+        self.create_modal = CreateModalState::default();
+        self.focus = FocusLayer::CreateModal;
+        if let Some(project_key) = self.active_project_key() {
+            self.load_assignable_users(project_key.clone());
+            self.load_epics(project_key);
+        }
+    }
+
+    fn active_project_key(&self) -> Option<String> {
+        match &self.active_tab {
+            Tab::List(id) => self
+                .list_tabs
+                .iter()
+                .find(|t| t.id == *id)
+                .map(|t| t.project_key.clone()),
+            Tab::Board(_board_id) => {
+                // Find nearest list tab project_key
+                let pos = self.tab_order.iter().position(|t| t == &self.active_tab);
+                if let Some(pos) = pos {
+                    for i in (0..pos).rev() {
+                        if let Tab::List(id) = &self.tab_order[i] {
+                            if let Some(lt) = self.list_tabs.iter().find(|t| t.id == *id) {
+                                return Some(lt.project_key.clone());
+                            }
+                        }
+                    }
+                }
+                // fallback: first list tab
+                self.list_tabs.first().map(|t| t.project_key.clone())
+            }
+        }
+    }
+
+    fn load_assignable_users(&mut self, project_key: String) {
+        self.create_modal.loading_assignees = true;
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        tokio::spawn(async move {
+            let provider = crate::provider::jira::JiraProvider::new(client, base_url, email, token);
+            let result = provider.get_assignable_users(&project_key).await;
+            let _ = tx.send(AppMessage::AssignableUsersLoaded(result));
+        });
+    }
+
+    fn load_epics(&mut self, project_key: String) {
+        self.create_modal.loading_epics = true;
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        tokio::spawn(async move {
+            let provider = crate::provider::jira::JiraProvider::new(client, base_url, email, token);
+            let result = provider.get_epics(&project_key).await;
+            let _ = tx.send(AppMessage::EpicsLoaded(result));
+        });
+    }
+
+    fn submit_create_issue(&mut self) {
+        let project_key = match self.active_project_key() {
+            Some(k) => k,
+            None => return,
+        };
+        let summary = self.create_modal.title.clone();
+        if summary.is_empty() {
+            self.create_modal.error = Some("Title is required".into());
+            return;
+        }
+        let description = self.create_modal.description.join("\n");
+        let assignee_id = self
+            .create_modal
+            .assignee_idx
+            .and_then(|i| self.create_modal.assignees.get(i))
+            .map(|u| u.account_id.clone());
+        let epic_key = self
+            .create_modal
+            .epic_idx
+            .and_then(|i| self.create_modal.epics.get(i))
+            .map(|e| e.key.clone());
+        let priority = PRIORITIES[self.create_modal.priority_idx].to_string();
+
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        tokio::spawn(async move {
+            let provider = crate::provider::jira::JiraProvider::new(client, base_url, email, token);
+            let result = provider
+                .create_issue(
+                    &project_key,
+                    &summary,
+                    &description,
+                    assignee_id.as_deref(),
+                    epic_key.as_deref(),
+                    &priority,
+                )
+                .await;
+            let _ = tx.send(AppMessage::IssueCreated(result));
+        });
+    }
+
+    fn handle_create_key(&mut self, key: KeyEvent) {
+        use crossterm::event::KeyCode;
+
+        if key.code == KeyCode::Esc {
+            if self.create_modal.list_open {
+                self.create_modal.list_open = false;
+            } else {
+                self.create_modal_open = false;
+                self.focus = FocusLayer::Main;
+            }
+            return;
+        }
+
+        if self.create_modal.list_open {
+            match key.code {
+                KeyCode::Up => {
+                    self.create_modal.list_scroll = self.create_modal.list_scroll.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.create_modal.list_scroll += 1;
+                    let max = match self.create_modal.active_field {
+                        CreateField::Assignee => self.create_modal.assignees.len().saturating_sub(1),
+                        CreateField::Epic => self.create_modal.epics.len().saturating_sub(1),
+                        CreateField::Priority => PRIORITIES.len().saturating_sub(1),
+                        _ => 0,
+                    };
+                    if self.create_modal.list_scroll > max {
+                        self.create_modal.list_scroll = max;
+                    }
+                }
+                KeyCode::Enter => {
+                    match self.create_modal.active_field {
+                        CreateField::Assignee => {
+                            self.create_modal.assignee_idx = Some(self.create_modal.list_scroll);
+                        }
+                        CreateField::Epic => {
+                            self.create_modal.epic_idx = Some(self.create_modal.list_scroll);
+                        }
+                        CreateField::Priority => {
+                            self.create_modal.priority_idx = self.create_modal.list_scroll;
+                        }
+                        _ => {}
+                    }
+                    self.create_modal.list_open = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        match key.code {
+            KeyCode::Tab => {
+                self.create_modal.active_field = match self.create_modal.active_field {
+                    CreateField::Title => CreateField::Description,
+                    CreateField::Description => CreateField::Assignee,
+                    CreateField::Assignee => CreateField::Epic,
+                    CreateField::Epic => CreateField::Priority,
+                    CreateField::Priority => CreateField::Save,
+                    CreateField::Save => CreateField::Cancel,
+                    CreateField::Cancel => CreateField::Title,
+                };
+            }
+            KeyCode::BackTab => {
+                self.create_modal.active_field = match self.create_modal.active_field {
+                    CreateField::Title => CreateField::Cancel,
+                    CreateField::Description => CreateField::Title,
+                    CreateField::Assignee => CreateField::Description,
+                    CreateField::Epic => CreateField::Assignee,
+                    CreateField::Priority => CreateField::Epic,
+                    CreateField::Save => CreateField::Priority,
+                    CreateField::Cancel => CreateField::Save,
+                };
+            }
+            KeyCode::Enter => match self.create_modal.active_field {
+                CreateField::Assignee | CreateField::Epic | CreateField::Priority => {
+                    self.create_modal.list_open = true;
+                    self.create_modal.list_scroll = match self.create_modal.active_field {
+                        CreateField::Assignee => self.create_modal.assignee_idx.unwrap_or(0),
+                        CreateField::Epic => self.create_modal.epic_idx.unwrap_or(0),
+                        CreateField::Priority => self.create_modal.priority_idx,
+                        _ => 0,
+                    };
+                }
+                CreateField::Save => {
+                    self.submit_create_issue();
+                }
+                CreateField::Cancel => {
+                    self.create_modal_open = false;
+                    self.focus = FocusLayer::Main;
+                }
+                CreateField::Description => {
+                    let row = self.create_modal.description_cursor_row;
+                    let col = self.create_modal.description_cursor_col;
+                    let rest = self.create_modal.description[row][col..].to_string();
+                    self.create_modal.description[row].truncate(col);
+                    self.create_modal.description.insert(row + 1, rest);
+                    self.create_modal.description_cursor_row += 1;
+                    self.create_modal.description_cursor_col = 0;
+                }
+                _ => {}
+            },
+            KeyCode::Char(c) => match self.create_modal.active_field {
+                CreateField::Title => {
+                    self.create_modal.title.push(c);
+                }
+                CreateField::Description => {
+                    let row = self.create_modal.description_cursor_row;
+                    let col = self.create_modal.description_cursor_col;
+                    self.create_modal.description[row].insert(col, c);
+                    self.create_modal.description_cursor_col += 1;
+                }
+                _ => {}
+            },
+            KeyCode::Backspace => match self.create_modal.active_field {
+                CreateField::Title => {
+                    self.create_modal.title.pop();
+                }
+                CreateField::Description => {
+                    let row = self.create_modal.description_cursor_row;
+                    let col = self.create_modal.description_cursor_col;
+                    if col > 0 {
+                        self.create_modal.description[row].remove(col - 1);
+                        self.create_modal.description_cursor_col -= 1;
+                    } else if row > 0 {
+                        let line = self.create_modal.description.remove(row);
+                        self.create_modal.description_cursor_row -= 1;
+                        let prev_len = self.create_modal.description[row - 1].len();
+                        self.create_modal.description[row - 1].push_str(&line);
+                        self.create_modal.description_cursor_col = prev_len;
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Up if self.create_modal.active_field == CreateField::Description => {
+                if self.create_modal.description_cursor_row > 0 {
+                    self.create_modal.description_cursor_row -= 1;
+                    let len = self.create_modal.description[self.create_modal.description_cursor_row].len();
+                    self.create_modal.description_cursor_col = self.create_modal.description_cursor_col.min(len);
+                }
+            }
+            KeyCode::Down if self.create_modal.active_field == CreateField::Description => {
+                if self.create_modal.description_cursor_row < self.create_modal.description.len() - 1 {
+                    self.create_modal.description_cursor_row += 1;
+                    let len = self.create_modal.description[self.create_modal.description_cursor_row].len();
+                    self.create_modal.description_cursor_col = self.create_modal.description_cursor_col.min(len);
+                }
+            }
+            KeyCode::Left => match self.create_modal.active_field {
+                CreateField::Title => {
+                    // no cursor tracking for title (append-only style like auth modal)
+                }
+                CreateField::Description => {
+                    if self.create_modal.description_cursor_col > 0 {
+                        self.create_modal.description_cursor_col -= 1;
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Right => match self.create_modal.active_field {
+                CreateField::Title => {}
+                CreateField::Description => {
+                    let row = self.create_modal.description_cursor_row;
+                    let len = self.create_modal.description[row].len();
+                    if self.create_modal.description_cursor_col < len {
+                        self.create_modal.description_cursor_col += 1;
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
     }
 
     pub fn open_find(&mut self) {
@@ -1134,6 +1572,131 @@ impl App {
         }
     }
 
+    fn reload_active_tab(&mut self) {
+        match &self.active_tab {
+            Tab::List(id) => {
+                let id = *id;
+                if let Some(tab) = self.list_tabs.iter_mut().find(|t| t.id == id) {
+                    tab.loading = true;
+                    tab.error = None;
+                    let key = tab.project_key.clone();
+                    self.load_backlog_for_tab(id, key);
+                }
+            }
+            Tab::Board(board_id) => {
+                let board_id = *board_id;
+                self.load_board_data(board_id);
+            }
+        }
+    }
+
+    fn update_card_drag_target(&mut self, pos: (u16, u16)) {
+        let board_area = match self.board_content_area {
+            Some(a) => a,
+            None => return,
+        };
+
+        let board_id = match self.active_tab {
+            Tab::Board(id) => id,
+            _ => return,
+        };
+
+        let tab = match self.board_tabs.iter().find(|t| t.board_id == board_id) {
+            Some(t) => t,
+            None => return,
+        };
+
+        let hide_backlog = self.board_hide_backlog_col;
+        let visible_col_count = tab.columns.iter()
+            .filter(|c| !(hide_backlog && c.name.eq_ignore_ascii_case("backlog")))
+            .count();
+
+        if visible_col_count == 0 { return; }
+
+        let col_width = board_area.width / visible_col_count as u16;
+        let relative_x = pos.0.saturating_sub(board_area.x);
+        let col_idx = (relative_x / col_width.max(1)) as usize;
+        let col_idx = col_idx.min(visible_col_count.saturating_sub(1));
+
+        let relative_y = pos.1.saturating_sub(board_area.y);
+        let row = (relative_y / 4) as usize; // approximate card height of 4
+
+        self.card_drag_target = Some((col_idx, row));
+    }
+
+    fn transition_card_to_column(&mut self, issue_key: &str, target_col: usize) {
+        let board_id = match self.active_tab {
+            Tab::Board(id) => id,
+            _ => return,
+        };
+
+        let hide_backlog = self.board_hide_backlog_col;
+
+        // Resolve actual column index (accounting for hidden backlog)
+        let actual_target_idx = {
+            let tab = match self.board_tabs.iter().find(|t| t.board_id == board_id) {
+                Some(t) => t,
+                None => return,
+            };
+            let visible: Vec<usize> = tab.columns.iter().enumerate()
+                .filter(|(_, c)| !(hide_backlog && c.name.eq_ignore_ascii_case("backlog")))
+                .map(|(i, _)| i)
+                .collect();
+            match visible.get(target_col) {
+                Some(&idx) => idx,
+                None => return,
+            }
+        };
+
+        let target_col_name = self.board_tabs.iter()
+            .find(|t| t.board_id == board_id)
+            .and_then(|t| t.columns.get(actual_target_idx))
+            .map(|c| c.name.clone());
+
+        let target_col_name = match target_col_name {
+            Some(n) => n,
+            None => return,
+        };
+
+        // Optimistic update: move the issue in-memory to the target column
+        if let Some(tab) = self.board_tabs.iter_mut().find(|t| t.board_id == board_id) {
+            let mut issue = None;
+            for col in tab.columns.iter_mut() {
+                if let Some(pos) = col.issues.iter().position(|i| i.key == issue_key) {
+                    issue = Some(col.issues.remove(pos));
+                    break;
+                }
+            }
+            if let Some(mut iss) = issue {
+                iss.fields.status.name = target_col_name.clone();
+                if let Some(col) = tab.columns.get_mut(actual_target_idx) {
+                    col.issues.push(iss);
+                }
+            }
+        }
+
+        // Fire the API call
+        let key = issue_key.to_string();
+        let tx = self.message_tx.clone();
+        let client = self.http_client.clone();
+        let email = self.config.auth.email.clone().unwrap_or_default();
+        let token = self.config.auth.token.clone().unwrap_or_default();
+        let base_url = self
+            .config
+            .jira
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://jira.atlassian.net".into());
+
+        self.card_drag_transition_target = Some((key.clone(), target_col_name));
+
+        tokio::spawn(async move {
+            let provider = crate::provider::jira::JiraProvider::new(client, base_url, email, token);
+            let result = provider.get_transitions(&key).await;
+            let _ = tx.send(AppMessage::TransitionsLoaded(key, result));
+        });
+    }
+
     fn add_list_tab(&mut self, project_key: String, project_name: String) {
         let id = self.next_list_id;
         self.next_list_id += 1;
@@ -1263,6 +1826,7 @@ impl App {
         }
 
         if mouse.kind == MouseEventKind::Drag(MouseButton::Left) {
+            self.mouse_pos = pos;
             if self.detail_dragging {
                 if let Some(resize_area) = self.detail_resize_area {
                     let panel_bottom = resize_area.y + self.detail_height;
@@ -1273,6 +1837,10 @@ impl App {
             }
             if self.tab_dragging.is_some() {
                 self.tab_drag_insert_pos = Some(self.tab_insert_pos_for_x(pos.0));
+                return;
+            }
+            if self.card_dragging.is_some() {
+                self.update_card_drag_target(pos);
                 return;
             }
             return;
@@ -1286,6 +1854,26 @@ impl App {
                 } else {
                     self.tab_drag_insert_pos = None;
                 }
+            }
+            if let Some(drag) = self.card_dragging.take() {
+                if let Some((target_col, _)) = self.card_drag_target.take() {
+                    if target_col != drag.source_col {
+                        self.transition_card_to_column(&drag.issue_key, target_col);
+                    }
+                } else {
+                    // No drag movement → treat as click → open detail
+                    let issue = self
+                        .board_tabs
+                        .iter()
+                        .flat_map(|t| t.columns.iter())
+                        .flat_map(|c| c.issues.iter())
+                        .find(|i| i.key == drag.issue_key)
+                        .cloned();
+                    if let Some(issue) = issue {
+                        self.open_detail_for_issue(&issue);
+                    }
+                }
+                self.card_drag_target = None;
             }
             return;
         }
@@ -1425,26 +2013,22 @@ impl App {
                 self.open_find();
             } else if hit(pos, self.click_regions.header.settings_link) {
                 self.open_settings();
+            } else if hit(pos, self.click_regions.header.create_link) {
+                self.open_create_modal();
             } else if hit(pos, self.click_regions.header.login_link) {
                 self.open_auth();
             } else if hit(pos, self.click_regions.header.logout_link) {
                 self.logout();
             }
 
-            // Board card clicks
+            // Board card clicks — start drag
             if let Tab::Board(_) = &self.active_tab {
-                for (area, key) in &self.click_regions.board_cards.cards {
+                for (area, key, col_idx) in &self.click_regions.board_cards.cards {
                     if hit(pos, Some(*area)) {
-                        let issue = self
-                            .board_tabs
-                            .iter()
-                            .flat_map(|t| t.columns.iter())
-                            .flat_map(|c| c.issues.iter())
-                            .find(|i| i.key == *key)
-                            .cloned();
-                        if let Some(issue) = issue {
-                            self.open_detail_for_issue(&issue);
-                        }
+                        self.card_dragging = Some(CardDrag {
+                            issue_key: key.clone(),
+                            source_col: *col_idx,
+                        });
                         return;
                     }
                 }
@@ -1895,12 +2479,14 @@ impl App {
 
     fn save_open_tabs(&self) {
         let mut config = self.config.clone();
-        config.jira.open_tabs.clear();
+
+        // Build current tabs list
+        let mut current_tabs: Vec<OpenTab> = Vec::new();
         for tab in &self.tab_order {
             match tab {
                 Tab::List(id) => {
                     if let Some(lt) = self.list_tabs.iter().find(|t| t.id == *id) {
-                        config.jira.open_tabs.push(OpenTab::List {
+                        current_tabs.push(OpenTab::List {
                             project_key: lt.project_key.clone(),
                             project_name: lt.project_name.clone(),
                             id: lt.id,
@@ -1909,7 +2495,6 @@ impl App {
                 }
                 Tab::Board(id) => {
                     if let Some(bt) = self.board_tabs.iter().find(|t| t.board_id == *id) {
-                        // Use the nearest list tab's project key as context
                         let project_key = self.tab_order.iter()
                             .rev()
                             .find_map(|t| if let Tab::List(lid) = t {
@@ -1917,7 +2502,7 @@ impl App {
                             } else { None })
                             .or_else(|| self.projects.get(self.selected_project).map(|p| p.key.clone()))
                             .unwrap_or_default();
-                        config.jira.open_tabs.push(OpenTab::Board {
+                        current_tabs.push(OpenTab::Board {
                             project_key,
                             board_id: bt.board_id,
                             board_name: bt.board_name.clone(),
@@ -1926,6 +2511,24 @@ impl App {
                 }
             }
         }
+
+        // Save per-user if we have identity
+        let instance = config.jira.base_url.clone().unwrap_or_default();
+        let email = config.auth.email.clone().unwrap_or_default();
+        if !instance.is_empty() && !email.is_empty() {
+            if let Some(entry) = config.jira.user_tabs.iter_mut().find(|ut| ut.instance_url == instance && ut.email == email) {
+                entry.tabs = current_tabs.clone();
+            } else {
+                config.jira.user_tabs.push(crate::config::types::UserTabs {
+                    instance_url: instance,
+                    email,
+                    tabs: current_tabs.clone(),
+                });
+            }
+        }
+
+        // Also keep open_tabs for backwards compat
+        config.jira.open_tabs = current_tabs;
         let _ = config::save_config(&config);
     }
 

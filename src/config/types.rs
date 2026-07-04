@@ -31,6 +31,15 @@ pub struct JiraConfig {
     pub project: Option<String>,
     #[serde(default)]
     pub open_tabs: Vec<OpenTab>,
+    #[serde(default)]
+    pub user_tabs: Vec<UserTabs>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserTabs {
+    pub instance_url: String,
+    pub email: String,
+    pub tabs: Vec<OpenTab>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

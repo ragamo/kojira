@@ -179,7 +179,31 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         let mut y_offset = 0u16;
         let issues_to_render: Vec<&_> = visible_issues.iter().skip(scroll_offset).copied().collect();
 
+        // Render placeholder if this column is the drag target
+        let drag_target_row = app.card_drag_target
+            .filter(|&(col_idx, _)| col_idx == i)
+            .map(|(_, row)| row);
+
+        let mut card_index = 0usize;
         for issue in &issues_to_render {
+            // Insert placeholder before this card if it matches the insert position
+            if let Some(target_row) = drag_target_row {
+                if card_index == target_row {
+                    let ph_h = 2u16;
+                    if y_offset + ph_h <= inner.height {
+                        let ph_area = Rect {
+                            x: inner.x,
+                            y: inner.y + y_offset,
+                            width: inner.width,
+                            height: ph_h,
+                        };
+                        let ph = Block::default().style(Style::default().bg(t.accent));
+                        frame.render_widget(ph, ph_area);
+                        y_offset += ph_h + 1;
+                    }
+                }
+            }
+            card_index += 1;
             let content_width = inner.width as usize;
 
             // Row 1+: Summary (wrapped)
@@ -287,13 +311,38 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 && mouse.1 >= card_area.y
                 && mouse.1 < card_area.y + card_area.height;
 
-            app.click_regions.board_cards.cards.push((card_area, issue.key.clone()));
+            app.click_regions.board_cards.cards.push((card_area, issue.key.clone(), i));
 
-            let card_bg = if hovered { t.header_bg } else { t.bg };
-            let card = Paragraph::new(lines).style(Style::default().bg(card_bg));
+            let is_being_dragged = app.card_dragging.as_ref().map(|d| d.issue_key == issue.key).unwrap_or(false);
+            let card_bg = if is_being_dragged {
+                t.bg
+            } else if hovered {
+                t.header_bg
+            } else {
+                t.bg
+            };
+            let card_fg = if is_being_dragged { t.text_dim } else { t.text };
+            let card = Paragraph::new(lines).style(Style::default().bg(card_bg).fg(card_fg));
             frame.render_widget(card, card_area);
 
             y_offset += card_height + 1;
+        }
+
+        // Placeholder at end of column if target_row >= card_index
+        if let Some(target_row) = drag_target_row {
+            if target_row >= card_index {
+                let ph_h = 2u16;
+                if y_offset + ph_h <= inner.height {
+                    let ph_area = Rect {
+                        x: inner.x,
+                        y: inner.y + y_offset,
+                        width: inner.width,
+                        height: ph_h,
+                    };
+                    let ph = Block::default().style(Style::default().bg(t.accent));
+                    frame.render_widget(ph, ph_area);
+                }
+            }
         }
     }
 
