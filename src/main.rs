@@ -38,6 +38,10 @@ async fn main() -> Result<()> {
         }
     }
 
+    if app.logged_in && app.list_tabs.is_empty() && app.board_tabs.is_empty() {
+        app.open_find();
+    }
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

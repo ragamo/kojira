@@ -839,7 +839,7 @@ impl App {
         self.focus = FocusLayer::Settings;
     }
 
-    fn open_find(&mut self) {
+    pub fn open_find(&mut self) {
         self.find_modal_open = true;
         self.find_input.clear();
         self.find_results.clear();
@@ -1809,6 +1809,9 @@ impl App {
                 self.active_tab = new_tab.unwrap_or(Tab::List(0));
                 self.save_open_tabs();
             }
+        }
+        if self.list_tabs.is_empty() && self.board_tabs.is_empty() {
+            self.open_find();
         }
     }
 
