@@ -1962,6 +1962,7 @@ impl App {
                 for (area, field) in &self.create_field_areas {
                     if hit(pos, Some(*area)) {
                         let clicked_field = *field;
+                        self.focus = FocusLayer::CreateModal;
                         match clicked_field {
                             CreateField::Assignee | CreateField::Epic | CreateField::Priority => {
                                 self.create_modal.active_field = clicked_field;
