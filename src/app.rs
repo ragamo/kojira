@@ -962,8 +962,11 @@ impl App {
             }
             KeyCode::Enter if self.detail_transition_open => {
                 if let Some(transition) = self.detail_transitions.get(self.detail_transition_selected).cloned() {
-                    if let Some(ref issue) = self.detail_issue.clone() {
-                        self.do_transition(&issue.key, &transition.id);
+                    if let Some(ref mut issue) = self.detail_issue {
+                        let key = issue.key.clone();
+                        issue.fields.status.name = transition.to.name.clone();
+                        self.detail_transition_open = false;
+                        self.do_transition(&key, &transition.id);
                     }
                 }
             }
