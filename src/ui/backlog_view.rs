@@ -30,7 +30,8 @@ fn epic_color_for(name: &str) -> Color {
     Color::Rgb(r, g, b)
 }
 
-fn status_category_color(issue: &JiraIssue, theme: &Theme) -> Color {
+fn status_color(issue: &JiraIssue, theme: &Theme) -> Color {
+    let name = issue.fields.status.name.to_lowercase();
     let cat = issue
         .fields
         .status
@@ -38,6 +39,28 @@ fn status_category_color(issue: &JiraIssue, theme: &Theme) -> Color {
         .as_ref()
         .map(|c| c.key.as_str())
         .unwrap_or("");
+
+    // Match by common status names first
+    if name.contains("done") || name.contains("closed") || name.contains("resolved") || name.contains("complete") {
+        return theme.success;
+    }
+    if name.contains("progress") || name.contains("review") || name.contains("testing") || name.contains("dev") {
+        return theme.info;
+    }
+    if name.contains("block") || name.contains("impediment") || name.contains("rejected") {
+        return theme.error;
+    }
+    if name.contains("todo") || name.contains("to do") || name.contains("open") || name.contains("backlog") {
+        return theme.text_dim;
+    }
+    if name.contains("ready") || name.contains("approved") || name.contains("validated") {
+        return Color::Rgb(170, 210, 90); // lime
+    }
+    if name.contains("hold") || name.contains("wait") || name.contains("pending") {
+        return theme.warning;
+    }
+
+    // Fallback to category
     match cat {
         "done" => theme.success,
         "indeterminate" => theme.info,
@@ -142,7 +165,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             let actual_index = app.backlog_nav.offset + i;
             let is_selected = app.backlog_nav.selected == Some(actual_index);
 
-            let status_color = status_category_color(issue, t);
+            let status_color = status_color(issue, t);
 
             let epic_cell = if let Some(ref parent) = issue.fields.parent {
                 let epic_name = parent
