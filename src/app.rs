@@ -1001,6 +1001,8 @@ impl App {
                 } else if self.active_tab == Tab::Backlog {
                     let count = self.filtered_backlog_count();
                     self.backlog_nav.scroll_down(count);
+                } else if let Tab::Board(id) = self.active_tab {
+                    self.scroll_board_column(id, mouse.column, 3);
                 }
                 return;
             }
@@ -1012,6 +1014,8 @@ impl App {
                     self.detail_scroll = self.detail_scroll.saturating_sub(2);
                 } else if self.active_tab == Tab::Backlog {
                     self.backlog_nav.scroll_up();
+                } else if let Tab::Board(id) = self.active_tab {
+                    self.scroll_board_column(id, mouse.column, -3);
                 }
                 return;
             }
