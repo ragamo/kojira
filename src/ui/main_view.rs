@@ -192,10 +192,18 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     let add_label = " + new tab ";
     let add_w = add_label.len() as u16;
     let add_area = Rect { x, y: area.y, width: add_w, height: 1 };
+    let btn_bg = match (t.header_bg, t.bg) {
+        (Color::Rgb(hr, hg, hb), Color::Rgb(br, bg_, bb)) => Color::Rgb(
+            ((hr as u16 + br as u16) / 2) as u8,
+            ((hg as u16 + bg_ as u16) / 2) as u8,
+            ((hb as u16 + bb as u16) / 2) as u8,
+        ),
+        _ => t.header_bg,
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" + ", Style::default().fg(t.accent)),
-            Span::styled("new tab ", Style::default().fg(t.text_dim)),
+            Span::styled(" + ", Style::default().fg(t.accent).bg(btn_bg)),
+            Span::styled("new tab ", Style::default().fg(t.text_dim).bg(btn_bg)),
         ])),
         add_area,
     );
