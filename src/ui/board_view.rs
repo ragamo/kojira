@@ -250,11 +250,8 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
 
             app.click_regions.board_cards.cards.push((card_area, issue.key.clone()));
 
-            let card = if hovered {
-                Paragraph::new(lines).style(Style::default().bg(t.header_bg))
-            } else {
-                Paragraph::new(lines)
-            };
+            let card_bg = if hovered { t.header_bg } else { t.bg };
+            let card = Paragraph::new(lines).style(Style::default().bg(card_bg));
             frame.render_widget(card, card_area);
 
             y_offset += card_height + 1;
