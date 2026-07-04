@@ -241,7 +241,18 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 lines.push(Line::from(Span::styled(display, Style::default().fg(Color::Rgb(30, 30, 30)).bg(bg))));
             }
 
-            // Row 3: Key left, Assignee right
+            // Row 3: Type icon + Key left, Assignee right
+            let type_icon = match issue.fields.issue_type.name.to_lowercase().as_str() {
+                n if n.contains("bug")        => ("●", t.error),
+                n if n.contains("epic")       => ("⬡", t.highlight),
+                n if n.contains("story")      => ("◈", t.success),
+                n if n.contains("task")       => ("◻", t.info),
+                n if n.contains("sub-task") || n.contains("subtask") => ("◽", t.text_dim),
+                n if n.contains("spike")      => ("◇", t.warning),
+                n if n.contains("feature")    => ("★", t.accent),
+                n if n.contains("improvement") || n.contains("enhancement") => ("▲", t.info),
+                _                             => ("◦", t.text_dim),
+            };
             let key_span = Span::styled(&issue.key, Style::default().fg(t.accent));
             let assignee_name = issue
                 .fields
@@ -255,11 +266,14 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 color_for(assignee_name, AUTHOR_COLORS)
             };
 
+            let icon_prefix = 2usize; // icon + space
             let key_len = issue.key.len();
-            let available = content_width.saturating_sub(key_len + 2);
+            let available = content_width.saturating_sub(icon_prefix + key_len + 2);
             let assignee_display = truncate_str(assignee_name, available);
-            let padding = content_width.saturating_sub(key_len + assignee_display.len()).max(1);
+            let padding = content_width.saturating_sub(icon_prefix + key_len + assignee_display.len()).max(1);
             let line3 = Line::from(vec![
+                Span::styled(type_icon.0, Style::default().fg(type_icon.1)),
+                Span::raw(" "),
                 key_span,
                 Span::raw(" ".repeat(padding)),
                 Span::styled(assignee_display, Style::default().fg(assignee_color)),
