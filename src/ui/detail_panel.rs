@@ -480,24 +480,6 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
     let w = inner.width.saturating_sub(1);
     let mut y = inner.y;
 
-    // Assignee (clickable - bordered)
-    let assignee = issue
-        .fields
-        .assignee
-        .as_ref()
-        .map(|a| a.display_name.as_str())
-        .unwrap_or("-");
-    let assignee_area = Rect { x, y, width: w, height: 3 };
-    let assignee_widget = Paragraph::new(Span::styled(assignee, Style::default().fg(t.warning)))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(t.border))
-            .title(" assignee ")
-            .title_style(label_style));
-    frame.render_widget(assignee_widget, assignee_area);
-    app.detail_field_areas.push((assignee_area, DetailField::Assignee));
-    y += 4;
-
     // Reporter (read-only - no border)
     if let Some(ref meta) = app.detail_metadata {
         if let Some(ref reporter) = meta.reporter {
@@ -508,6 +490,27 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
         }
     }
 
+    // Assignee (clickable - bordered)
+    let assignee = issue
+        .fields
+        .assignee
+        .as_ref()
+        .map(|a| a.display_name.as_str())
+        .unwrap_or("-");
+    let assignee_area = Rect { x, y, width: w, height: 3 };
+    let assignee_saving = app.detail_field_saving == Some(DetailField::Assignee);
+    let assignee_text = if assignee_saving { "saving..." } else { assignee };
+    let assignee_fg = if assignee_saving { t.text_dim } else { t.warning };
+    let assignee_widget = Paragraph::new(Span::styled(assignee_text, Style::default().fg(assignee_fg)))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(t.border))
+            .title(" assignee ")
+            .title_style(label_style));
+    frame.render_widget(assignee_widget, assignee_area);
+    app.detail_field_areas.push((assignee_area, DetailField::Assignee));
+    y += 4;
+
     // Parent/Epic (clickable - bordered)
     let parent_display = if let Some(ref parent) = issue.fields.parent {
         let epic_name = parent.fields.as_ref().map(|f| f.summary.as_str()).unwrap_or(&parent.key);
@@ -516,7 +519,10 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
         "-".to_string()
     };
     let parent_area = Rect { x, y, width: w, height: 3 };
-    let parent_widget = Paragraph::new(Span::styled(&parent_display, Style::default().fg(t.accent)))
+    let parent_saving = app.detail_field_saving == Some(DetailField::Parent);
+    let parent_text = if parent_saving { "saving...".to_string() } else { parent_display };
+    let parent_fg = if parent_saving { t.text_dim } else { t.accent };
+    let parent_widget = Paragraph::new(Span::styled(&parent_text, Style::default().fg(parent_fg)))
         .block(Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(t.border))
@@ -529,7 +535,10 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
     // Priority (clickable - bordered)
     let priority_name = issue.fields.priority.as_ref().map(|p| p.name.as_str()).unwrap_or("-");
     let priority_area = Rect { x, y, width: w, height: 3 };
-    let priority_widget = Paragraph::new(Span::styled(priority_name, value_style))
+    let priority_saving = app.detail_field_saving == Some(DetailField::Priority);
+    let priority_text = if priority_saving { "saving..." } else { priority_name };
+    let priority_fg = if priority_saving { t.text_dim } else { t.text };
+    let priority_widget = Paragraph::new(Span::styled(priority_text, Style::default().fg(priority_fg)))
         .block(Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(t.border))

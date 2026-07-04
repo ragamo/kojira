@@ -316,6 +316,7 @@ pub struct App {
     pub detail_transition_selected: usize,
     pub detail_transition_btn_area: Option<Rect>,
     pub detail_field_edit: Option<DetailFieldEdit>,
+    pub detail_field_saving: Option<DetailField>,
     pub detail_field_areas: Vec<(Rect, DetailField)>,
     pub detail_field_dropdown_areas: Vec<Rect>,
     pub detail_field_scroll: usize,
@@ -544,6 +545,7 @@ impl App {
             detail_transition_selected: 0,
             detail_transition_btn_area: None,
             detail_field_edit: None,
+            detail_field_saving: None,
             detail_field_areas: Vec::new(),
             detail_field_dropdown_areas: Vec::new(),
             detail_field_scroll: 0,
@@ -788,11 +790,13 @@ impl App {
                 self.create_modal.error = Some(e.to_string());
             }
             AppMessage::IssueFieldUpdated(key, Ok(())) => {
+                self.detail_field_saving = None;
                 self.detail_field_edit = None;
                 self.load_issue_detail(&key);
                 self.reload_active_tab();
             }
             AppMessage::IssueFieldUpdated(_, Err(_)) => {
+                self.detail_field_saving = None;
                 self.detail_field_edit = None;
             }
             AppMessage::ColumnOrderLoaded(Err(_)) => {}
@@ -2461,6 +2465,7 @@ impl App {
             Some(e) => e,
             None => return,
         };
+        self.detail_field_saving = Some(edit.field);
         let issue_key = match &self.detail_issue {
             Some(i) => i.key.clone(),
             None => return,
