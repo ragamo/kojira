@@ -132,16 +132,29 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let mut x = area.x;
     let mut tab_areas: Vec<(Rect, usize)> = Vec::new();
-    let mut global_idx = 0usize;
 
-    // List tabs
-    for lt in &app.list_tabs.clone() {
-        let label = format!(" {} ", lt.project_key);
+    for (global_idx, tab) in app.tab_order.clone().iter().enumerate() {
+        let (label, is_active) = match tab {
+            Tab::List(id) => {
+                let label = app.list_tabs.iter()
+                    .find(|t| t.id == *id)
+                    .map(|t| format!(" {} ", t.project_key))
+                    .unwrap_or_default();
+                (label, app.active_tab == Tab::List(*id))
+            }
+            Tab::Board(id) => {
+                let label = app.board_tabs.iter()
+                    .find(|t| t.board_id == *id)
+                    .map(|t| format!(" {} ", t.board_name))
+                    .unwrap_or_default();
+                (label, app.active_tab == Tab::Board(*id))
+            }
+        };
+        if label.is_empty() { continue; }
         let w = label.len() as u16;
         if x + w > area.x + area.width.saturating_sub(15) {
             break;
         }
-        let is_active = app.active_tab == Tab::List(lt.id);
         let style = if is_active {
             Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
         } else {
@@ -151,27 +164,6 @@ fn render_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
         frame.render_widget(Paragraph::new(Span::styled(&label, style)), tab_area);
         tab_areas.push((tab_area, global_idx));
         x += w + 1;
-        global_idx += 1;
-    }
-
-    // Board tabs
-    for bt in &app.board_tabs.clone() {
-        let label = format!(" {} ", bt.board_name);
-        let w = label.len() as u16;
-        if x + w > area.x + area.width.saturating_sub(15) {
-            break;
-        }
-        let is_active = app.active_tab == Tab::Board(bt.board_id);
-        let style = if is_active {
-            Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(t.text_dim)
-        };
-        let tab_area = Rect { x, y: area.y, width: w, height: 1 };
-        frame.render_widget(Paragraph::new(Span::styled(&label, style)), tab_area);
-        tab_areas.push((tab_area, global_idx));
-        x += w + 1;
-        global_idx += 1;
     }
 
     // "+ new tab" button

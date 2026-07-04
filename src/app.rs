@@ -244,6 +244,7 @@ pub struct App {
 
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
+    pub tab_order: Vec<Tab>,
 
     // Find modal
     pub find_modal_open: bool,
@@ -324,6 +325,7 @@ impl App {
         let mut next_list_id: u64 = 1;
         let mut list_tabs: Vec<ListTab> = Vec::new();
         let mut board_tabs: Vec<BoardTab> = Vec::new();
+        let mut tab_order: Vec<Tab> = Vec::new();
 
         for open_tab in config.jira.open_tabs.iter() {
             match open_tab {
@@ -339,6 +341,7 @@ impl App {
                         filter: None,
                         statuses: Vec::new(),
                     });
+                    tab_order.push(Tab::List(*id));
                     if *id >= next_list_id {
                         next_list_id = id + 1;
                     }
@@ -352,12 +355,13 @@ impl App {
                         loading: true,
                         error: None,
                     });
+                    tab_order.push(Tab::Board(*board_id));
                 }
             }
         }
 
-        // If no list tabs persisted, create the default one
-        if list_tabs.is_empty() && !current_project_key.is_empty() {
+        // If no tabs persisted, create a default list tab
+        if list_tabs.is_empty() && board_tabs.is_empty() && !current_project_key.is_empty() {
             list_tabs.push(ListTab {
                 id: next_list_id,
                 project_key: current_project_key.clone(),
@@ -369,10 +373,12 @@ impl App {
                 filter: None,
                 statuses: Vec::new(),
             });
+            tab_order.push(Tab::List(next_list_id));
             next_list_id += 1;
         }
 
-        let first_list_id = list_tabs.first().map(|t| t.id).unwrap_or(0);
+        let first_tab = tab_order.first().cloned().unwrap_or(Tab::List(0));
+        let first_list_id = if let Tab::List(id) = first_tab { id } else { 0 };
         let subdomain = config
             .jira
             .base_url
@@ -430,6 +436,7 @@ impl App {
             detail_transition_btn_area: None,
 
             board_tabs,
+            tab_order,
 
             find_modal_open: false,
             find_input: String::new(),
@@ -916,11 +923,6 @@ impl App {
                 self.toggle_find_panel_item(self.find_panel_cursor);
             }
             KeyCode::Enter => {
-                // Toggle current item then confirm
-                self.toggle_find_panel_item(self.find_panel_cursor);
-                self.confirm_find_panel_selection();
-            }
-            KeyCode::Char('a') => {
                 self.confirm_find_panel_selection();
             }
             _ => {}
@@ -1136,6 +1138,7 @@ impl App {
             filter: None,
             statuses: Vec::new(),
         });
+        self.tab_order.push(Tab::List(id));
         self.active_tab = Tab::List(id);
         self.save_open_tabs();
         self.load_backlog_for_tab(id, project_key);
@@ -1755,11 +1758,7 @@ impl App {
     }
 
     fn all_tab_ids(&self) -> Vec<Tab> {
-        let mut tabs: Vec<Tab> = self.list_tabs.iter().map(|t| Tab::List(t.id)).collect();
-        for bt in &self.board_tabs {
-            tabs.push(Tab::Board(bt.board_id));
-        }
-        tabs
+        self.tab_order.clone()
     }
 
     fn refresh_active_tab(&mut self) {
@@ -1787,29 +1786,22 @@ impl App {
     }
 
     fn close_active_tab(&mut self) {
-        match self.active_tab {
-            Tab::List(id) => {
-                let pos = self.list_tabs.iter().position(|t| t.id == id).unwrap_or(0);
-                self.list_tabs.retain(|t| t.id != id);
-                let new_tab = self.list_tabs.get(pos)
-                    .or_else(|| self.list_tabs.last())
-                    .map(|t| Tab::List(t.id))
-                    .or_else(|| self.board_tabs.first().map(|t| Tab::Board(t.board_id)));
-                self.active_tab = new_tab.unwrap_or(Tab::List(0));
-                self.save_open_tabs();
-            }
-            Tab::Board(id) => {
-                let board_id = id;
-                let pos = self.board_tabs.iter().position(|t| t.board_id == board_id).unwrap_or(0);
-                self.board_tabs.retain(|t| t.board_id != board_id);
-                let new_tab = self.board_tabs.get(pos)
-                    .or_else(|| self.board_tabs.last())
-                    .map(|t| Tab::Board(t.board_id))
-                    .or_else(|| self.list_tabs.last().map(|t| Tab::List(t.id)));
-                self.active_tab = new_tab.unwrap_or(Tab::List(0));
-                self.save_open_tabs();
-            }
+        let closing = self.active_tab.clone();
+        let pos = self.tab_order.iter().position(|t| t == &closing).unwrap_or(0);
+        self.tab_order.retain(|t| t != &closing);
+
+        match closing {
+            Tab::List(id) => self.list_tabs.retain(|t| t.id != id),
+            Tab::Board(id) => self.board_tabs.retain(|t| t.board_id != id),
         }
+
+        // Pick the tab at the same position, or the previous one
+        let new_tab = self.tab_order.get(pos)
+            .or_else(|| self.tab_order.last())
+            .cloned();
+        self.active_tab = new_tab.unwrap_or(Tab::List(0));
+        self.save_open_tabs();
+
         if self.list_tabs.is_empty() && self.board_tabs.is_empty() {
             self.open_find();
         }
@@ -1829,6 +1821,7 @@ impl App {
             error: None,
         };
         self.board_tabs.push(tab);
+        self.tab_order.push(Tab::Board(board.id));
         self.active_tab = Tab::Board(board.id);
         self.save_open_tabs();
         self.load_board_data(board.id);
@@ -1837,23 +1830,35 @@ impl App {
     fn save_open_tabs(&self) {
         let mut config = self.config.clone();
         config.jira.open_tabs.clear();
-        for lt in &self.list_tabs {
-            config.jira.open_tabs.push(OpenTab::List {
-                project_key: lt.project_key.clone(),
-                project_name: lt.project_name.clone(),
-                id: lt.id,
-            });
-        }
-        let board_project_key = self.list_tabs.first()
-            .map(|t| t.project_key.clone())
-            .or_else(|| self.projects.get(self.selected_project).map(|p| p.key.clone()))
-            .unwrap_or_default();
-        for bt in &self.board_tabs {
-            config.jira.open_tabs.push(OpenTab::Board {
-                project_key: board_project_key.clone(),
-                board_id: bt.board_id,
-                board_name: bt.board_name.clone(),
-            });
+        for tab in &self.tab_order {
+            match tab {
+                Tab::List(id) => {
+                    if let Some(lt) = self.list_tabs.iter().find(|t| t.id == *id) {
+                        config.jira.open_tabs.push(OpenTab::List {
+                            project_key: lt.project_key.clone(),
+                            project_name: lt.project_name.clone(),
+                            id: lt.id,
+                        });
+                    }
+                }
+                Tab::Board(id) => {
+                    if let Some(bt) = self.board_tabs.iter().find(|t| t.board_id == *id) {
+                        // Use the nearest list tab's project key as context
+                        let project_key = self.tab_order.iter()
+                            .rev()
+                            .find_map(|t| if let Tab::List(lid) = t {
+                                self.list_tabs.iter().find(|lt| lt.id == *lid).map(|lt| lt.project_key.clone())
+                            } else { None })
+                            .or_else(|| self.projects.get(self.selected_project).map(|p| p.key.clone()))
+                            .unwrap_or_default();
+                        config.jira.open_tabs.push(OpenTab::Board {
+                            project_key,
+                            board_id: bt.board_id,
+                            board_name: bt.board_name.clone(),
+                        });
+                    }
+                }
+            }
         }
         let _ = config::save_config(&config);
     }
