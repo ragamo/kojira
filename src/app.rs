@@ -956,11 +956,26 @@ impl App {
 
         match mouse.kind {
             MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.detail_open => {
-                self.detail_scroll = self.detail_scroll.saturating_add(2);
+                let in_detail = self.detail_resize_area
+                    .map(|r| pos.1 >= r.y)
+                    .unwrap_or(false);
+                if in_detail {
+                    self.detail_scroll = self.detail_scroll.saturating_add(2);
+                } else if self.active_tab == Tab::Backlog {
+                    let count = self.filtered_backlog_count();
+                    self.backlog_nav.scroll_down(count);
+                }
                 return;
             }
             MouseEventKind::ScrollUp if self.focus == FocusLayer::Main && self.detail_open => {
-                self.detail_scroll = self.detail_scroll.saturating_sub(2);
+                let in_detail = self.detail_resize_area
+                    .map(|r| pos.1 >= r.y)
+                    .unwrap_or(false);
+                if in_detail {
+                    self.detail_scroll = self.detail_scroll.saturating_sub(2);
+                } else if self.active_tab == Tab::Backlog {
+                    self.backlog_nav.scroll_up();
+                }
                 return;
             }
             MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.active_tab == Tab::Backlog => {
