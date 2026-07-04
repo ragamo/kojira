@@ -198,7 +198,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
 
             let mut lines: Vec<Line> = summary_lines
                 .iter()
-                .map(|s| Line::from(Span::styled(s.as_str(), Style::default().fg(t.text).add_modifier(Modifier::BOLD))))
+                .map(|s| Line::from(Span::styled(s.as_str(), Style::default().fg(t.text))))
                 .collect();
 
             // Row 2: Epic with background color
