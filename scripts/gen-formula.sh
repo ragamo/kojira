@@ -17,7 +17,7 @@ base="https://github.com/$repo/releases/download/$VERSION"
 
 sha() {
   tmp=$(mktemp)
-  curl -fsSL --fail-with-body -o "$tmp" "$base/kojira-$1.tar.gz" \
+  curl -fsSL -o "$tmp" "$base/kojira-$1.tar.gz" \
     || { rm -f "$tmp"; echo "error: failed to download kojira-$1.tar.gz" >&2; exit 1; }
   { sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp"; } | awk '{print $1}'
   rm -f "$tmp"
