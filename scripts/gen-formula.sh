@@ -16,9 +16,11 @@ repo="ragamo/kojira"
 base="https://github.com/$repo/releases/download/$VERSION"
 
 sha() {
-  curl -fsSL "$base/kojira-$1.tar.gz" \
-    | { sha256sum 2>/dev/null || shasum -a 256; } \
-    | awk '{print $1}'
+  tmp=$(mktemp)
+  curl -fsSL --fail-with-body -o "$tmp" "$base/kojira-$1.tar.gz" \
+    || { rm -f "$tmp"; echo "error: failed to download kojira-$1.tar.gz" >&2; exit 1; }
+  { sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp"; } | awk '{print $1}'
+  rm -f "$tmp"
 }
 
 MAC_ARM="$(sha aarch64-apple-darwin)"
