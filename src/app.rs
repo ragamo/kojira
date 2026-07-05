@@ -2145,13 +2145,13 @@ impl App {
             }
 
             if self.create_modal_open {
-                if hit(pos, self.create_resize_area) {
-                    self.create_dragging = true;
-                    return;
-                }
                 if hit(pos, self.create_close_area) {
                     self.create_modal_open = false;
                     self.focus = FocusLayer::Main;
+                    return;
+                }
+                if hit(pos, self.create_resize_area) {
+                    self.create_dragging = true;
                     return;
                 }
                 // Click on dropdown items
