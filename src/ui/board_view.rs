@@ -1,5 +1,5 @@
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 
 use crate::app::App;
 
@@ -132,7 +132,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             })
             .collect();
 
-        let title = format!("{} ({}) ", col.name.to_uppercase(), visible_issues.len());
+        let title = format!(" {} ({}) ", col.name.to_uppercase(), visible_issues.len());
         let borders = if (i as u16) < col_count - 1 {
             Borders::RIGHT
         } else {
@@ -150,9 +150,9 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         let col_height = inner.height;
         let mut cumulative_heights: Vec<u16> = Vec::with_capacity(visible_issues.len());
         for issue in &visible_issues {
-            let summary_lines = wrap_str(&issue.fields.summary, inner.width as usize);
+            let summary_lines = wrap_str(&issue.fields.summary, (inner.width as usize).saturating_sub(2));
             let has_epic = issue.fields.parent.is_some();
-            let card_h = (summary_lines.len() as u16) + 1 + if has_epic { 1 } else { 0 } + 1; // card + spacing
+            let card_h = (summary_lines.len() as u16) + 1 + if has_epic { 1 } else { 0 } + 1; // card + bottom padding
             cumulative_heights.push(card_h);
         }
         let total_height: u16 = cumulative_heights.iter().sum();
@@ -204,12 +204,12 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 }
             }
             card_index += 1;
-            let content_width = inner.width as usize;
+            let content_width = (inner.width as usize).saturating_sub(2);
 
             // Row 1+: Summary (wrapped)
             let summary_lines = wrap_str(&issue.fields.summary, content_width);
             let has_epic = issue.fields.parent.is_some();
-            let card_height = (summary_lines.len() as u16) + 1 + if has_epic { 1 } else { 0 }; // summary + key/assignee [+ epic]
+            let card_height = (summary_lines.len() as u16) + 1 + if has_epic { 1 } else { 0 } + 1; // summary + key/assignee [+ epic] + bottom padding
 
             if y_offset + card_height > inner.height {
                 break;
@@ -322,10 +322,12 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                 t.bg
             };
             let card_fg = if is_being_dragged { t.text_dim } else { t.text };
-            let card = Paragraph::new(lines).style(Style::default().bg(card_bg).fg(card_fg));
+            let card = Paragraph::new(lines)
+                .block(Block::default().padding(Padding { left: 1, right: 1, bottom: 1, ..Padding::ZERO }))
+                .style(Style::default().bg(card_bg).fg(card_fg));
             frame.render_widget(card, card_area);
 
-            y_offset += card_height + 1;
+            y_offset += card_height;
         }
 
         // Placeholder at end of column if target_row >= card_index
