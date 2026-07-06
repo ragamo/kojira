@@ -1,6 +1,6 @@
 # kojira
 
-A terminal UI (TUI) for Jira — browse backlogs and boards, manage issues, and create tasks without leaving your terminal.
+A terminal UI for Jira — browse backlogs and boards, manage issues, and create tasks without leaving your terminal.
 
 Built with Rust. Mouse-first interaction. Heavily inspired by [lazyglab](https://github.com/ragamo/lazyglab).
 
@@ -15,8 +15,6 @@ brew install ragamo/tap/kojira
 ```
 
 ### Install script
-
-Downloads the prebuilt binary for your platform, verifies its checksum, and installs it to `~/.local/bin` — no sudo required:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ragamo/kojira/master/scripts/install.sh | sh
