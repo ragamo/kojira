@@ -189,7 +189,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             // Insert placeholder before this card if it matches the insert position
             if let Some(target_row) = drag_target_row {
                 if card_index == target_row {
-                    let ph_h = 2u16;
+                    let ph_h = 3u16;
                     if y_offset + ph_h <= inner.height {
                         let ph_area = Rect {
                             x: inner.x,
@@ -199,7 +199,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
                         };
                         let ph = Block::default().style(Style::default().bg(t.accent));
                         frame.render_widget(ph, ph_area);
-                        y_offset += ph_h + 1;
+                        y_offset += ph_h;
                     }
                 }
             }
@@ -333,7 +333,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         // Placeholder at end of column if target_row >= card_index
         if let Some(target_row) = drag_target_row {
             if target_row >= card_index {
-                let ph_h = 2u16;
+                let ph_h = 3u16;
                 if y_offset + ph_h <= inner.height {
                     let ph_area = Rect {
                         x: inner.x,
