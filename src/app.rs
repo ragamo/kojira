@@ -330,6 +330,9 @@ pub struct App {
     pub detail_field_areas: Vec<(Rect, DetailField)>,
     pub detail_field_dropdown_areas: Vec<Rect>,
     pub detail_field_scroll: usize,
+    pub detail_meta_scroll: u16,
+    pub detail_meta_max_scroll: u16,
+    pub detail_meta_area: Option<Rect>,
 
     // Board tabs
     pub board_tabs: Vec<BoardTab>,
@@ -563,6 +566,9 @@ impl App {
             detail_field_areas: Vec::new(),
             detail_field_dropdown_areas: Vec::new(),
             detail_field_scroll: 0,
+            detail_meta_scroll: 0,
+            detail_meta_max_scroll: 0,
+            detail_meta_area: None,
 
             board_tabs,
             tab_order,
@@ -2024,6 +2030,7 @@ impl App {
                     let panel_bottom = resize_area.y + self.detail_height;
                     let new_height = panel_bottom.saturating_sub(pos.1);
                     self.detail_height = new_height.max(6).min(panel_bottom.saturating_sub(6));
+                    self.detail_meta_scroll = 0;
                 }
                 return;
             }
@@ -2085,7 +2092,12 @@ impl App {
                     .map(|r| pos.1 >= r.y)
                     .unwrap_or(false);
                 if in_detail {
-                    if self.detail_scroll < self.detail_max_scroll {
+                    let in_meta = self.detail_meta_area
+                        .map(|r| pos.0 >= r.x && pos.0 < r.x + r.width && pos.1 >= r.y && pos.1 < r.y + r.height)
+                        .unwrap_or(false);
+                    if in_meta {
+                        self.detail_meta_scroll = self.detail_meta_scroll.saturating_add(2).min(self.detail_meta_max_scroll);
+                    } else if self.detail_scroll < self.detail_max_scroll {
                         self.detail_scroll = self.detail_scroll.saturating_add(2).min(self.detail_max_scroll);
                     }
                 } else if matches!(self.active_tab, Tab::List(_)) {
@@ -2101,7 +2113,14 @@ impl App {
                     .map(|r| pos.1 >= r.y)
                     .unwrap_or(false);
                 if in_detail {
-                    self.detail_scroll = self.detail_scroll.saturating_sub(2);
+                    let in_meta = self.detail_meta_area
+                        .map(|r| pos.0 >= r.x && pos.0 < r.x + r.width && pos.1 >= r.y && pos.1 < r.y + r.height)
+                        .unwrap_or(false);
+                    if in_meta {
+                        self.detail_meta_scroll = self.detail_meta_scroll.saturating_sub(2);
+                    } else {
+                        self.detail_scroll = self.detail_scroll.saturating_sub(2);
+                    }
                 } else if matches!(self.active_tab, Tab::List(_)) {
                     if let Some(tab) = self.active_list_tab_mut() { tab.nav.scroll_up(); }
                 } else if let Tab::Board(id) = self.active_tab {
@@ -2499,6 +2518,7 @@ impl App {
         self.detail_tab = 0;
         self.detail_height = 0;
         self.detail_scroll = 0;
+        self.detail_meta_scroll = 0;
         self.detail_transitions.clear();
         self.detail_transition_open = false;
         self.detail_transition_selected = 0;

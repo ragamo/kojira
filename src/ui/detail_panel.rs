@@ -492,6 +492,7 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    app.detail_meta_area = Some(area);
     app.detail_field_areas.clear();
     app.detail_field_dropdown_areas.clear();
 
@@ -499,15 +500,30 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
     let value_style = Style::default().fg(t.text);
     let x = inner.x + 1;
     let w = inner.width.saturating_sub(1);
-    let mut y = inner.y;
+    let scroll = app.detail_meta_scroll;
+    let mut y_logical: u16 = 0;
+    let inner_top = inner.y;
+    let inner_bottom = inner.y + inner.height;
+
+    // Helper: convert logical y to screen y, render only if visible
+    macro_rules! meta_rect {
+        ($yl:expr, $h:expr) => {{
+            let screen_y = inner_top as i32 + $yl as i32 - scroll as i32;
+            let r = Rect { x, y: screen_y as u16, width: w, height: $h };
+            let visible = screen_y >= inner_top as i32 && (screen_y + $h as i32) <= inner_bottom as i32;
+            (r, visible)
+        }};
+    }
 
     // Reporter (read-only - no border)
     if let Some(ref meta) = app.detail_metadata {
         if let Some(ref reporter) = meta.reporter {
-            frame.render_widget(Paragraph::new(Span::styled("reporter", label_style)), Rect { x, y, width: w, height: 1 });
-            y += 1;
-            frame.render_widget(Paragraph::new(Span::styled(reporter.as_str(), value_style)), Rect { x, y, width: w, height: 1 });
-            y += 2;
+            let (r, vis) = meta_rect!(y_logical, 1);
+            if vis { frame.render_widget(Paragraph::new(Span::styled("reporter", label_style)), r); }
+            y_logical += 1;
+            let (r, vis) = meta_rect!(y_logical, 1);
+            if vis { frame.render_widget(Paragraph::new(Span::styled(reporter.as_str(), value_style)), r); }
+            y_logical += 2;
         }
     }
 
@@ -518,19 +534,21 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
         .as_ref()
         .map(|a| a.display_name.as_str())
         .unwrap_or("-");
-    let assignee_area = Rect { x, y, width: w, height: 3 };
+    let (assignee_area, assignee_vis) = meta_rect!(y_logical, 3);
     let assignee_saving = app.detail_field_saving == Some(DetailField::Assignee);
     let assignee_text = if assignee_saving { "saving..." } else { assignee };
     let assignee_fg = if assignee_saving { t.text_dim } else { t.warning };
-    let assignee_widget = Paragraph::new(Span::styled(assignee_text, Style::default().fg(assignee_fg)))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(t.border))
-            .title(" assignee ")
-            .title_style(label_style));
-    frame.render_widget(assignee_widget, assignee_area);
+    if assignee_vis {
+        let assignee_widget = Paragraph::new(Span::styled(assignee_text, Style::default().fg(assignee_fg)))
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.border))
+                .title(" assignee ")
+                .title_style(label_style));
+        frame.render_widget(assignee_widget, assignee_area);
+    }
     app.detail_field_areas.push((assignee_area, DetailField::Assignee));
-    y += 4;
+    y_logical += 4;
 
     // Parent/Epic (clickable - bordered)
     let parent_display = if let Some(ref parent) = issue.fields.parent {
@@ -539,49 +557,57 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
     } else {
         "-".to_string()
     };
-    let parent_area = Rect { x, y, width: w, height: 3 };
+    let (parent_area, parent_vis) = meta_rect!(y_logical, 3);
     let parent_saving = app.detail_field_saving == Some(DetailField::Parent);
     let parent_text = if parent_saving { "saving...".to_string() } else { parent_display };
     let parent_fg = if parent_saving { t.text_dim } else { t.accent };
-    let parent_widget = Paragraph::new(Span::styled(&parent_text, Style::default().fg(parent_fg)))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(t.border))
-            .title(" parent ")
-            .title_style(label_style));
-    frame.render_widget(parent_widget, parent_area);
+    if parent_vis {
+        let parent_widget = Paragraph::new(Span::styled(&parent_text, Style::default().fg(parent_fg)))
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.border))
+                .title(" parent ")
+                .title_style(label_style));
+        frame.render_widget(parent_widget, parent_area);
+    }
     app.detail_field_areas.push((parent_area, DetailField::Parent));
-    y += 4;
+    y_logical += 4;
 
     // Priority (clickable - bordered)
     let priority_name = issue.fields.priority.as_ref().map(|p| p.name.as_str()).unwrap_or("-");
-    let priority_area = Rect { x, y, width: w, height: 3 };
+    let (priority_area, priority_vis) = meta_rect!(y_logical, 3);
     let priority_saving = app.detail_field_saving == Some(DetailField::Priority);
     let priority_text = if priority_saving { "saving..." } else { priority_name };
     let priority_fg = if priority_saving { t.text_dim } else { t.text };
-    let priority_widget = Paragraph::new(Span::styled(priority_text, Style::default().fg(priority_fg)))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(t.border))
-            .title(" priority ")
-            .title_style(label_style));
-    frame.render_widget(priority_widget, priority_area);
+    if priority_vis {
+        let priority_widget = Paragraph::new(Span::styled(priority_text, Style::default().fg(priority_fg)))
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.border))
+                .title(" priority ")
+                .title_style(label_style));
+        frame.render_widget(priority_widget, priority_area);
+    }
     app.detail_field_areas.push((priority_area, DetailField::Priority));
-    y += 4;
+    y_logical += 4;
 
     // Type (read-only - no border)
-    frame.render_widget(Paragraph::new(Span::styled("type", label_style)), Rect { x, y, width: w, height: 1 });
-    y += 1;
-    frame.render_widget(Paragraph::new(Span::styled(&issue.fields.issue_type.name, value_style)), Rect { x, y, width: w, height: 1 });
-    y += 2;
+    let (r, vis) = meta_rect!(y_logical, 1);
+    if vis { frame.render_widget(Paragraph::new(Span::styled("type", label_style)), r); }
+    y_logical += 1;
+    let (r, vis) = meta_rect!(y_logical, 1);
+    if vis { frame.render_widget(Paragraph::new(Span::styled(&issue.fields.issue_type.name, value_style)), r); }
+    y_logical += 2;
 
     // Labels (read-only - no border)
     if let Some(ref meta) = app.detail_metadata {
         if !meta.labels.is_empty() {
-            frame.render_widget(Paragraph::new(Span::styled("labels", label_style)), Rect { x, y, width: w, height: 1 });
-            y += 1;
-            frame.render_widget(Paragraph::new(Span::styled(meta.labels.join(", "), value_style)), Rect { x, y, width: w, height: 1 });
-            y += 2;
+            let (r, vis) = meta_rect!(y_logical, 1);
+            if vis { frame.render_widget(Paragraph::new(Span::styled("labels", label_style)), r); }
+            y_logical += 1;
+            let (r, vis) = meta_rect!(y_logical, 1);
+            if vis { frame.render_widget(Paragraph::new(Span::styled(meta.labels.join(", "), value_style)), r); }
+            y_logical += 2;
         }
     }
 
@@ -589,12 +615,18 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
     if let Some(ref meta) = app.detail_metadata {
         if let Some(ref created) = meta.created {
             let date = if created.len() >= 10 { &created[..10] } else { created };
-            frame.render_widget(Paragraph::new(Span::styled("created", label_style)), Rect { x, y, width: w, height: 1 });
-            y += 1;
-            frame.render_widget(Paragraph::new(Span::styled(date, value_style)), Rect { x, y, width: w, height: 1 });
-            let _ = y;
+            let (r, vis) = meta_rect!(y_logical, 1);
+            if vis { frame.render_widget(Paragraph::new(Span::styled("created", label_style)), r); }
+            y_logical += 1;
+            let (r, vis) = meta_rect!(y_logical, 1);
+            if vis { frame.render_widget(Paragraph::new(Span::styled(date, value_style)), r); }
+            y_logical += 1;
         }
     }
+
+    // Update max scroll
+    let total_content = y_logical;
+    app.detail_meta_max_scroll = total_content.saturating_sub(inner.height);
 
     // Dropdown overlay for field edit
     if let Some(ref edit) = app.detail_field_edit {
