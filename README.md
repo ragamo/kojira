@@ -4,18 +4,25 @@ A terminal UI (TUI) for Jira — browse backlogs and boards, manage issues, and 
 
 Built with Rust. Mouse-first interaction. Heavily inspired by [lazyglab](https://github.com/ragamo/lazyglab).
 
-<!-- screenshot placeholder
-<video src="" autoplay loop muted playsinline></video>
--->
-
-<div>
-  <!-- <a href="caps/01_backlog.png"><img src="caps/01_backlog.png" width="24%" alt="Backlog" /></a> -->
-  <!-- <a href="caps/02_board.png"><img src="caps/02_board.png" width="24%" alt="Board" /></a> -->
-  <!-- <a href="caps/03_issue_detail.png"><img src="caps/03_issue_detail.png" width="24%" alt="Issue detail" /></a> -->
-  <!-- <a href="caps/04_create_issue.png"><img src="caps/04_create_issue.png" width="24%" alt="Create issue" /></a> -->
-</div>
+<a href="assets/main.png"><img src="assets/main.png" alt="kojira" /></a>
 
 ## Installation
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew install ragamo/tap/kojira
+```
+
+### Install script
+
+Downloads the prebuilt binary for your platform, verifies its checksum, and installs it to `~/.local/bin` — no sudo required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ragamo/kojira/master/scripts/install.sh | sh
+```
+
+Make sure `~/.local/bin` is on your `PATH`.
 
 ### From source
 
@@ -30,6 +37,8 @@ cargo build --release
 
 ## Configuration
 
+The first time you run kojira you can enter your credentials directly from the login screen.
+
 Config is stored at `~/.config/kojira/config.toml`.
 
 ```toml
@@ -40,8 +49,6 @@ email = "you@example.com"
 [jira]
 base_url = "https://yourcompany.atlassian.net"
 ```
-
-The first time you run kojira you can enter your credentials directly from the login screen.
 
 ## Features
 
@@ -59,61 +66,73 @@ The first time you run kojira you can enter your credentials directly from the l
 
 ## Views
 
-### Backlog
+### Board / Kanban
 
-<!-- <div align="center">
-  <a href="caps/01_backlog.png"><img src="caps/01_backlog.png" width="80%" alt="Backlog" /></a>
-</div> -->
+<a href="assets/kanban.gif"><img src="assets/kanban.gif" alt="kanban" /></a>
 
-### Board
+### View / Edit Issue
 
-<!-- <div align="center">
-  <a href="caps/02_board.png"><img src="caps/02_board.png" width="80%" alt="Board" /></a>
-</div> -->
+<a href="assets/issue.gif"><img src="assets/issue.gif" alt="issue" /></a>
 
-### Issue detail
+### Create Issue
 
-<!-- <table>
-  <tr>
-    <td><a href="caps/03_issue_overview.png"><img src="caps/03_issue_overview.png" alt="Overview" /></a></td>
-    <td><a href="caps/04_issue_comments.png"><img src="caps/04_issue_comments.png" alt="Comments" /></a></td>
-  </tr>
-  <tr>
-    <td><a href="caps/05_issue_transitions.png"><img src="caps/05_issue_transitions.png" alt="Transitions" /></a></td>
-    <td><a href="caps/06_issue_edit.png"><img src="caps/06_issue_edit.png" alt="Edit" /></a></td>
-  </tr>
-</table> -->
+<a href="assets/create.gif"><img src="assets/create.gif" alt="create" /></a>
 
-### Create issue
+### List Issues
 
-<!-- <div align="center">
-  <a href="caps/07_create_issue.png"><img src="caps/07_create_issue.png" width="80%" alt="Create issue" /></a>
-</div> -->
+<a href="assets/list.gif"><img src="assets/list.gif" alt="list" /></a>
 
 ### Themes
 
-<!-- <table>
-  <tr>
-    <td><a href="caps/10_theme_one_dark.png"><img src="caps/10_theme_one_dark.png" alt="One Dark" /></a></td>
-    <td><a href="caps/11_theme_catppuccin.png"><img src="caps/11_theme_catppuccin.png" alt="Catppuccin" /></a></td>
-    <td><a href="caps/12_theme_dracula.png"><img src="caps/12_theme_dracula.png" alt="Dracula" /></a></td>
-  </tr>
-</table> -->
+<a href="assets/themes.gif"><img src="assets/themes.gif" alt="themes" /></a>
+
+### Tabs and Find boards
+
+<a href="assets/tabs.gif"><img src="assets/tabs.gif" alt="tabs" /></a>
 
 ## Keybindings
 
+**Global**
+
 | Key | Action |
 |-----|--------|
-| `Tab` / `←` / `→` | Switch tabs |
+| `q` / `Ctrl+C` | Quit |
+| `Tab` / `→` | Next tab |
+| `Shift+Tab` / `←` | Previous tab |
 | `1`–`9` | Jump to tab by number |
 | `n` | Open project/board finder |
 | `c` | Create new issue |
-| `e` | Edit issue title and description (in detail panel) |
-| `t` | Open transition menu (in detail panel) |
 | `r` | Refresh active tab |
 | `x` | Close active tab |
 | `,` | Open settings |
-| `q` | Quit |
-| `Esc` | Close panel / cancel |
+
+**Backlog**
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `Enter` | Open issue detail |
+
+**Issue detail**
+
+| Key | Action |
+|-----|--------|
+| `h` / `←` | Previous tab (Overview / Comments / Transitions) |
+| `l` / `→` | Next tab |
+| `j` / `↓` | Scroll down |
+| `k` / `↑` | Scroll up |
+| `e` | Edit title and description |
+| `t` | Open transition menu |
+| `Esc` | Close detail |
+
+**Transition menu**
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `Enter` | Apply selected transition |
+| `Esc` | Cancel |
 
 Mouse clicks work on all interactive elements: tabs, board cards, field selectors, transition button, create/settings links, and logout.
