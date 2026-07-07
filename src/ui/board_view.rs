@@ -121,12 +121,18 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             .copied()
             .unwrap_or(0);
 
+        let assignee_filter = &app.assignee_filter_active;
         let visible_issues: Vec<&_> = col
             .issues
             .iter()
             .filter(|issue| {
                 if hide_subtasks && issue.fields.issue_type.name.eq_ignore_ascii_case("sub-task") {
                     return false;
+                }
+                if let Some(name) = assignee_filter {
+                    if issue.fields.assignee.as_ref().map(|u| &u.display_name) != Some(name) {
+                        return false;
+                    }
                 }
                 true
             })

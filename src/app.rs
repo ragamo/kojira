@@ -56,6 +56,7 @@ pub enum FocusLayer {
     Find,
     FindBoardPanel,
     CreateModal,
+    AssigneeFilter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -406,6 +407,12 @@ pub struct App {
     pub create_close_area: Option<Rect>,
     pub create_field_areas: Vec<(Rect, CreateField)>,
     pub create_dropdown_areas: Vec<Rect>,
+
+    // Assignee filter modal
+    pub assignee_filter_open: bool,
+    pub assignee_filter_selected: usize,
+    pub assignee_filter_list: Vec<Option<String>>, // None = "All", Some(name) = assignee display_name
+    pub assignee_filter_active: Option<String>,    // None = show all, Some(name) = filter by name
 }
 
 impl App {
@@ -638,6 +645,11 @@ impl App {
             create_close_area: None,
             create_field_areas: Vec::new(),
             create_dropdown_areas: Vec::new(),
+
+            assignee_filter_open: false,
+            assignee_filter_selected: 0,
+            assignee_filter_list: Vec::new(),
+            assignee_filter_active: None,
 
             config,
         }
@@ -975,6 +987,7 @@ impl App {
             FocusLayer::Find => self.handle_find_key(key),
             FocusLayer::FindBoardPanel => self.handle_find_board_panel_key(key),
             FocusLayer::CreateModal => self.handle_create_key(key),
+            FocusLayer::AssigneeFilter => self.handle_assignee_filter_key(key),
             FocusLayer::Main => self.handle_main_key(key),
         }
     }
@@ -995,6 +1008,7 @@ impl App {
             KeyCode::Char('r') => self.refresh_active_tab(),
             KeyCode::Char(',') => self.open_settings(),
             KeyCode::Char('c') if !self.detail_open => self.open_create_modal(),
+            KeyCode::Char('a') if !self.detail_open => self.open_assignee_filter(),
             KeyCode::Char('x') => self.close_active_tab(),
             KeyCode::Enter if matches!(self.active_tab, Tab::List(_)) && !self.detail_open => {
                 self.open_detail_from_backlog();
@@ -1126,6 +1140,99 @@ impl App {
                 self.apply_settings();
             }
             _ => {}
+        }
+    }
+
+    fn open_assignee_filter(&mut self) {
+        let mut assignees: Vec<String> = Vec::new();
+        match &self.active_tab {
+            Tab::List(id) => {
+                if let Some(tab) = self.list_tabs.iter().find(|t| t.id == *id) {
+                    for issue in &tab.issues {
+                        if let Some(ref user) = issue.fields.assignee {
+                            if !assignees.contains(&user.display_name) {
+                                assignees.push(user.display_name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            Tab::Board(board_id) => {
+                if let Some(tab) = self.board_tabs.iter().find(|t| t.board_id == *board_id) {
+                    for col in &tab.columns {
+                        for issue in &col.issues {
+                            if let Some(ref user) = issue.fields.assignee {
+                                if !assignees.contains(&user.display_name) {
+                                    assignees.push(user.display_name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assignees.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        let mut list: Vec<Option<String>> = vec![None]; // "All" entry
+        list.extend(assignees.into_iter().map(Some));
+        let selected = match &self.assignee_filter_active {
+            None => 0,
+            Some(name) => list.iter().position(|item| item.as_deref() == Some(name)).unwrap_or(0),
+        };
+        self.assignee_filter_list = list;
+        self.assignee_filter_selected = selected;
+        self.assignee_filter_open = true;
+        self.focus = FocusLayer::AssigneeFilter;
+    }
+
+    fn handle_assignee_filter_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('a') => {
+                self.assignee_filter_open = false;
+                self.focus = FocusLayer::Main;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.assignee_filter_selected < self.assignee_filter_list.len().saturating_sub(1) {
+                    self.assignee_filter_selected += 1;
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.assignee_filter_selected > 0 {
+                    self.assignee_filter_selected -= 1;
+                }
+            }
+            KeyCode::Enter => {
+                let chosen = self.assignee_filter_list.get(self.assignee_filter_selected).cloned().unwrap_or(None);
+                self.assignee_filter_active = chosen;
+                self.assignee_filter_open = false;
+                self.focus = FocusLayer::Main;
+                // Reset navigation on list tabs
+                if let Some(tab) = self.active_list_tab_mut() {
+                    tab.nav.reset();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_assignee_filter_mouse(&mut self, pos: (u16, u16)) {
+        // Click outside modal closes it
+        if !hit(pos, self.click_regions.assignee_modal.bounds) {
+            self.assignee_filter_open = false;
+            self.focus = FocusLayer::Main;
+            return;
+        }
+        for (i, area) in self.click_regions.assignee_modal.item_areas.iter().enumerate() {
+            if hit(pos, Some(*area)) {
+                self.assignee_filter_selected = i;
+                let chosen = self.assignee_filter_list.get(i).cloned().unwrap_or(None);
+                self.assignee_filter_active = chosen;
+                self.assignee_filter_open = false;
+                self.focus = FocusLayer::Main;
+                if let Some(tab) = self.active_list_tab_mut() {
+                    tab.nav.reset();
+                }
+                return;
+            }
         }
     }
 
@@ -2145,6 +2252,18 @@ impl App {
         }
 
         match mouse.kind {
+            MouseEventKind::ScrollDown if self.focus == FocusLayer::AssigneeFilter => {
+                if self.assignee_filter_selected < self.assignee_filter_list.len().saturating_sub(1) {
+                    self.assignee_filter_selected += 1;
+                }
+                return;
+            }
+            MouseEventKind::ScrollUp if self.focus == FocusLayer::AssigneeFilter => {
+                if self.assignee_filter_selected > 0 {
+                    self.assignee_filter_selected -= 1;
+                }
+                return;
+            }
             MouseEventKind::ScrollDown if self.focus == FocusLayer::Main && self.detail_open => {
                 let in_detail = self.detail_resize_area
                     .map(|r| pos.1 >= r.y)
@@ -2211,6 +2330,11 @@ impl App {
         }
 
         if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+            if self.assignee_filter_open {
+                self.handle_assignee_filter_mouse(pos);
+                return;
+            }
+
             if self.settings_open {
                 self.handle_settings_mouse(pos);
                 return;
@@ -2886,10 +3010,19 @@ impl App {
 
     fn filtered_backlog_count(&self) -> usize {
         match self.active_list_tab() {
-            Some(tab) => match &tab.filter {
-                None => tab.issues.len(),
-                Some(f) => tab.issues.iter().filter(|i| i.fields.status.name == *f).count(),
-            },
+            Some(tab) => {
+                let assignee_filter = &self.assignee_filter_active;
+                tab.issues.iter()
+                    .filter(|i| match &tab.filter {
+                        None => true,
+                        Some(f) => i.fields.status.name == *f,
+                    })
+                    .filter(|i| match assignee_filter {
+                        None => true,
+                        Some(name) => i.fields.assignee.as_ref().map(|u| &u.display_name) == Some(name),
+                    })
+                    .count()
+            }
             None => 0,
         }
     }
@@ -2983,6 +3116,7 @@ impl App {
         let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
         let next_idx = (current_idx + 1) % tabs.len();
         self.active_tab = tabs[next_idx].clone();
+        self.assignee_filter_active = None;
     }
 
     fn prev_tab(&mut self) {
@@ -2991,6 +3125,7 @@ impl App {
         let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
         let prev_idx = if current_idx == 0 { tabs.len() - 1 } else { current_idx - 1 };
         self.active_tab = tabs[prev_idx].clone();
+        self.assignee_filter_active = None;
     }
 
     fn all_tab_ids(&self) -> Vec<Tab> {

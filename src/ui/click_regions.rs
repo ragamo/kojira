@@ -6,6 +6,7 @@ pub struct ClickRegions {
     pub backlog: BacklogRegion,
     pub board_cards: BoardCardRegion,
     pub find_modal: FindModalRegion,
+    pub assignee_modal: AssigneeModalRegion,
 }
 
 impl ClickRegions {
@@ -14,7 +15,14 @@ impl ClickRegions {
         self.backlog = BacklogRegion::default();
         self.board_cards = BoardCardRegion::default();
         self.find_modal = FindModalRegion::default();
+        self.assignee_modal = AssigneeModalRegion::default();
     }
+}
+
+#[derive(Default)]
+pub struct AssigneeModalRegion {
+    pub bounds: Option<Rect>,
+    pub item_areas: Vec<Rect>,
 }
 
 #[derive(Default)]

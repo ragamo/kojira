@@ -1,3 +1,4 @@
+pub mod assignee_modal;
 pub mod auth_modal;
 pub mod backlog_view;
 pub mod board_view;
@@ -25,5 +26,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     if app.auth_open {
         auth_modal::render(frame, app);
+    }
+    if app.assignee_filter_open {
+        assignee_modal::render(frame, app);
     }
 }

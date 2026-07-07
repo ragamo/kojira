@@ -123,12 +123,17 @@ pub fn render(frame: &mut Frame, app: &mut App, list_id: u64, area: Rect) {
 
     let area = content_area;
 
+    let assignee_filter = app.assignee_filter_active.clone();
     let filtered_issues: Vec<&JiraIssue> = tab
         .issues
         .iter()
         .filter(|issue| match &tab.filter {
             None => true,
             Some(f) => issue.fields.status.name == *f,
+        })
+        .filter(|issue| match &assignee_filter {
+            None => true,
+            Some(name) => issue.fields.assignee.as_ref().map(|u| &u.display_name) == Some(name),
         })
         .collect();
 
@@ -325,6 +330,13 @@ fn render_filters(frame: &mut Frame, app: &mut App, tab: &crate::app::ListTab, a
         x_offset += width + 1;
         spans.push(Span::styled(label, style));
         spans.push(Span::raw(" "));
+    }
+
+    if let Some(ref assignee) = app.assignee_filter_active {
+        spans.push(Span::raw("| "));
+        let label = format!(" @{} ", assignee);
+        let style = Style::default().fg(t.bg).bg(t.warning).add_modifier(Modifier::BOLD);
+        spans.push(Span::styled(label, style));
     }
 
     app.click_regions.backlog.filter_areas = filter_areas;
