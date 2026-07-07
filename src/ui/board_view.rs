@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 
-use crate::app::App;
+use crate::app::{App, DragTransitionState};
 
 const AUTHOR_COLORS: &[(u8, u8, u8)] = &[
     (97, 175, 239),   // blue
@@ -179,27 +179,71 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         let mut y_offset = 0u16;
         let issues_to_render: Vec<&_> = visible_issues.iter().skip(scroll_offset).copied().collect();
 
-        // Render placeholder if this column is the drag target
-        let drag_target_row = app.card_drag_target
+        // Determine placeholder state for this column during drag
+        let drag_placeholder = app.card_drag_target
             .filter(|&(col_idx, _)| col_idx == i)
-            .map(|(_, row)| row);
+            .and_then(|(_, row)| {
+                let is_source = app.card_dragging.as_ref().map(|d| d.source_col == i).unwrap_or(false);
+                if is_source { return None; }
+                Some(row)
+            });
+        let drag_target_row = drag_placeholder;
+
+        // Compute placeholder style and content based on transition state
+        let ph_style = if drag_target_row.is_some() {
+            match &app.card_drag_transition_state {
+                Some(DragTransitionState::Loading) => {
+                    let spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+                    let tick = (std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .subsec_millis() / 100) as usize;
+                    let spinner = spinner_frames[tick % spinner_frames.len()];
+                    Some((t.header_bg, vec![
+                        Span::styled(format!("{} ", spinner), Style::default().fg(t.accent)),
+                        Span::styled("loading…", Style::default().fg(t.text_dim)),
+                    ]))
+                }
+                Some(DragTransitionState::Loaded(allowed)) => {
+                    let is_allowed = allowed.iter().any(|n| n.eq_ignore_ascii_case(&col.name));
+                    if is_allowed {
+                        Some((t.accent, vec![
+                            Span::styled("✓ allowed", Style::default().fg(t.bg).add_modifier(Modifier::BOLD)),
+                        ]))
+                    } else {
+                        Some((t.error, vec![
+                            Span::styled("✗ invalid transition", Style::default().fg(t.bg).add_modifier(Modifier::BOLD)),
+                        ]))
+                    }
+                }
+                None => Some((t.accent, vec![]))
+            }
+        } else {
+            None
+        };
 
         let mut card_index = 0usize;
         for issue in &issues_to_render {
             // Insert placeholder before this card if it matches the insert position
             if let Some(target_row) = drag_target_row {
                 if card_index == target_row {
-                    let ph_h = 3u16;
-                    if y_offset + ph_h <= inner.height {
-                        let ph_area = Rect {
-                            x: inner.x,
-                            y: inner.y + y_offset,
-                            width: inner.width,
-                            height: ph_h,
-                        };
-                        let ph = Block::default().style(Style::default().bg(t.accent));
-                        frame.render_widget(ph, ph_area);
-                        y_offset += ph_h;
+                    if let Some((bg, ref spans)) = ph_style {
+                        let ph_h = 3u16;
+                        if y_offset + ph_h <= inner.height {
+                            let ph_area = Rect {
+                                x: inner.x,
+                                y: inner.y + y_offset,
+                                width: inner.width,
+                                height: ph_h,
+                            };
+                            let content = Line::from(spans.clone());
+                            let ph = Paragraph::new(content)
+                                .alignment(Alignment::Center)
+                                .block(Block::default().padding(Padding::vertical(1)))
+                                .style(Style::default().bg(bg));
+                            frame.render_widget(ph, ph_area);
+                            y_offset += ph_h;
+                        }
                     }
                 }
             }
@@ -333,16 +377,22 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         // Placeholder at end of column if target_row >= card_index
         if let Some(target_row) = drag_target_row {
             if target_row >= card_index {
-                let ph_h = 3u16;
-                if y_offset + ph_h <= inner.height {
-                    let ph_area = Rect {
-                        x: inner.x,
-                        y: inner.y + y_offset,
-                        width: inner.width,
-                        height: ph_h,
-                    };
-                    let ph = Block::default().style(Style::default().bg(t.accent));
-                    frame.render_widget(ph, ph_area);
+                if let Some((bg, ref spans)) = ph_style {
+                    let ph_h = 3u16;
+                    if y_offset + ph_h <= inner.height {
+                        let ph_area = Rect {
+                            x: inner.x,
+                            y: inner.y + y_offset,
+                            width: inner.width,
+                            height: ph_h,
+                        };
+                        let content = Line::from(spans.clone());
+                        let ph = Paragraph::new(content)
+                            .alignment(Alignment::Center)
+                            .block(Block::default().padding(Padding::vertical(1)))
+                            .style(Style::default().bg(bg));
+                        frame.render_widget(ph, ph_area);
+                    }
                 }
             }
         }
@@ -356,6 +406,7 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
             }
         }
     }
+
 }
 
 fn truncate_str(s: &str, max: usize) -> String {

@@ -143,7 +143,16 @@ pub const PRIORITIES: &[&str] = &["Highest", "High", "Medium", "Low", "Lowest"];
 pub struct CardDrag {
     pub issue_key: String,
     pub source_col: usize,
+    #[allow(dead_code)]
+    pub issue_type: String,
 }
+
+#[derive(Clone)]
+pub enum DragTransitionState {
+    Loading,
+    Loaded(Vec<String>), // allowed target column names
+}
+
 
 #[derive(Debug, Clone)]
 pub struct FindProject {
@@ -380,8 +389,10 @@ pub struct App {
     pub board_content_area: Option<Rect>,
     pub card_dragging: Option<CardDrag>,
     pub card_drag_target: Option<(usize, usize)>,
+    pub card_drag_transition_state: Option<DragTransitionState>,
     pub card_drag_transition_target: Option<(String, String)>,
     pub card_drag_pending_transition: bool,
+    pub transition_cache: std::collections::HashMap<String, Vec<String>>, // issue_type -> allowed column names
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
@@ -611,8 +622,10 @@ impl App {
             board_content_area: None,
             card_dragging: None,
             card_drag_target: None,
+            card_drag_transition_state: None,
             card_drag_transition_target: None,
             card_drag_pending_transition: false,
+            transition_cache: std::collections::HashMap::new(),
             theme_selected,
             theme_confirmed: theme_selected,
             header_bg_confirmed: header_bg_soft,
@@ -739,6 +752,18 @@ impl App {
                     if let Tab::Board(board_id) = self.active_tab {
                         self.load_board_data(board_id);
                     }
+                }
+            }
+            AppMessage::DragTransitionsLoaded(issue_type, Ok(transitions)) => {
+                let allowed: Vec<String> = transitions.iter().map(|t| t.to.name.clone()).collect();
+                self.transition_cache.insert(issue_type, allowed.clone());
+                if self.card_dragging.is_some() {
+                    self.card_drag_transition_state = Some(DragTransitionState::Loaded(allowed));
+                }
+            }
+            AppMessage::DragTransitionsLoaded(_, Err(_)) => {
+                if self.card_dragging.is_some() {
+                    self.card_drag_transition_state = Some(DragTransitionState::Loaded(vec![]));
                 }
             }
             AppMessage::CommentsLoaded(key, Ok(comments)) => {
@@ -1736,6 +1761,35 @@ impl App {
         self.card_drag_target = Some((col_idx, row));
     }
 
+    fn is_drag_target_allowed(&self, target_col: usize, state: &Option<DragTransitionState>) -> bool {
+        let allowed_cols = match state {
+            Some(DragTransitionState::Loaded(cols)) => cols,
+            _ => return false, // still loading or no state
+        };
+        let board_id = match self.active_tab {
+            Tab::Board(id) => id,
+            _ => return false,
+        };
+        let hide_backlog = self.board_hide_backlog_col;
+        let tab = match self.board_tabs.iter().find(|t| t.board_id == board_id) {
+            Some(t) => t,
+            None => return false,
+        };
+        let visible: Vec<usize> = tab.columns.iter().enumerate()
+            .filter(|(_, c)| !(hide_backlog && c.name.eq_ignore_ascii_case("backlog")))
+            .map(|(i, _)| i)
+            .collect();
+        let actual_idx = match visible.get(target_col) {
+            Some(&idx) => idx,
+            None => return false,
+        };
+        let col_name = match tab.columns.get(actual_idx) {
+            Some(c) => &c.name,
+            None => return false,
+        };
+        allowed_cols.iter().any(|n| n.eq_ignore_ascii_case(col_name))
+    }
+
     fn transition_card_to_column(&mut self, issue_key: &str, target_col: usize, insert_row: usize) {
         let board_id = match self.active_tab {
             Tab::Board(id) => id,
@@ -2064,9 +2118,13 @@ impl App {
                 }
             }
             if let Some(drag) = self.card_dragging.take() {
+                let transition_state = self.card_drag_transition_state.take();
                 if let Some((target_col, insert_row)) = self.card_drag_target.take() {
                     if target_col != drag.source_col {
-                        self.transition_card_to_column(&drag.issue_key, target_col, insert_row);
+                        let drop_allowed = self.is_drag_target_allowed(target_col, &transition_state);
+                        if drop_allowed {
+                            self.transition_card_to_column(&drag.issue_key, target_col, insert_row);
+                        }
                     }
                 } else {
                     // No drag movement → treat as click → open detail
@@ -2345,13 +2403,41 @@ impl App {
             }
 
             // Board card clicks — start drag
-            if let Tab::Board(_) = &self.active_tab {
+            if let Tab::Board(board_id) = self.active_tab {
                 for (area, key, col_idx) in &self.click_regions.board_cards.cards {
                     if hit(pos, Some(*area)) {
+                        let issue_type = self.board_tabs.iter()
+                            .find(|t| t.board_id == board_id)
+                            .and_then(|t| t.columns.iter()
+                                .flat_map(|c| c.issues.iter())
+                                .find(|i| i.key == *key))
+                            .map(|i| i.fields.issue_type.name.clone())
+                            .unwrap_or_default();
+
                         self.card_dragging = Some(CardDrag {
                             issue_key: key.clone(),
                             source_col: *col_idx,
+                            issue_type: issue_type.clone(),
                         });
+
+                        if let Some(cached) = self.transition_cache.get(&issue_type) {
+                            self.card_drag_transition_state = Some(DragTransitionState::Loaded(cached.clone()));
+                        } else {
+                            self.card_drag_transition_state = Some(DragTransitionState::Loading);
+                            let issue_key = key.clone();
+                            let issue_type_clone = issue_type.clone();
+                            let tx = self.message_tx.clone();
+                            let client = self.http_client.clone();
+                            let email = self.config.auth.email.clone().unwrap_or_default();
+                            let token = self.config.auth.token.clone().unwrap_or_default();
+                            let base_url = self.config.jira.base_url.clone()
+                                .unwrap_or_else(|| "https://jira.atlassian.net".into());
+                            tokio::spawn(async move {
+                                let provider = JiraProvider::new(client, base_url, email, token);
+                                let result = provider.get_transitions(&issue_key).await;
+                                let _ = tx.send(AppMessage::DragTransitionsLoaded(issue_type_clone, result));
+                            });
+                        }
                         return;
                     }
                 }
