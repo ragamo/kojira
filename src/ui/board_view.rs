@@ -186,43 +186,58 @@ pub fn render(frame: &mut Frame, app: &mut App, board_id: u64, area: Rect) {
         let issues_to_render: Vec<&_> = visible_issues.iter().skip(scroll_offset).copied().collect();
 
         // Determine placeholder state for this column during drag
+        let is_source_col = app.card_dragging.as_ref().map(|d| d.source_col == i).unwrap_or(false);
         let drag_placeholder = app.card_drag_target
             .filter(|&(col_idx, _)| col_idx == i)
-            .and_then(|(_, row)| {
-                let is_source = app.card_dragging.as_ref().map(|d| d.source_col == i).unwrap_or(false);
-                if is_source { return None; }
-                Some(row)
-            });
+            .map(|(_, row)| row);
         let drag_target_row = drag_placeholder;
 
         // Compute placeholder style and content based on transition state
         let ph_style = if drag_target_row.is_some() {
-            match &app.card_drag_transition_state {
-                Some(DragTransitionState::Loading) => {
-                    let spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-                    let tick = (std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .subsec_millis() / 100) as usize;
-                    let spinner = spinner_frames[tick % spinner_frames.len()];
-                    Some((t.header_bg, vec![
-                        Span::styled(format!("{} ", spinner), Style::default().fg(t.accent)),
-                        Span::styled("loading…", Style::default().fg(t.text_dim)),
-                    ]))
-                }
-                Some(DragTransitionState::Loaded(allowed)) => {
-                    let is_allowed = allowed.iter().any(|n| n.eq_ignore_ascii_case(&col.name));
-                    if is_allowed {
-                        Some((t.accent, vec![
-                            Span::styled("✓ allowed", Style::default().fg(t.bg).add_modifier(Modifier::BOLD)),
-                        ]))
-                    } else {
-                        Some((t.error, vec![
-                            Span::styled("✗ invalid transition", Style::default().fg(t.bg).add_modifier(Modifier::BOLD)),
+            if is_source_col {
+                match &app.card_drag_transition_state {
+                    Some(DragTransitionState::Loading) => {
+                        let spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+                        let tick = (std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .subsec_millis() / 100) as usize;
+                        let spinner = spinner_frames[tick % spinner_frames.len()];
+                        Some((t.header_bg, vec![
+                            Span::styled(format!("{} ", spinner), Style::default().fg(t.accent)),
+                            Span::styled("loading…", Style::default().fg(t.text_dim)),
                         ]))
                     }
+                    _ => Some((t.accent, vec![]))
                 }
-                None => Some((t.accent, vec![]))
+            } else {
+                match &app.card_drag_transition_state {
+                    Some(DragTransitionState::Loading) => {
+                        let spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+                        let tick = (std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .subsec_millis() / 100) as usize;
+                        let spinner = spinner_frames[tick % spinner_frames.len()];
+                        Some((t.header_bg, vec![
+                            Span::styled(format!("{} ", spinner), Style::default().fg(t.accent)),
+                            Span::styled("loading…", Style::default().fg(t.text_dim)),
+                        ]))
+                    }
+                    Some(DragTransitionState::Loaded(allowed)) => {
+                        let is_allowed = allowed.iter().any(|n| n.eq_ignore_ascii_case(&col.name));
+                        if is_allowed {
+                            Some((t.accent, vec![
+                                Span::styled("✓ allowed", Style::default().fg(t.bg).add_modifier(Modifier::BOLD)),
+                            ]))
+                        } else {
+                            Some((t.error, vec![
+                                Span::styled("✗ invalid transition", Style::default().fg(t.bg).add_modifier(Modifier::BOLD)),
+                            ]))
+                        }
+                    }
+                    None => Some((t.accent, vec![]))
+                }
             }
         } else {
             None

@@ -393,7 +393,7 @@ pub struct App {
     pub card_drag_transition_state: Option<DragTransitionState>,
     pub card_drag_transition_target: Option<(String, String)>,
     pub card_drag_pending_transition: bool,
-    pub transition_cache: std::collections::HashMap<String, Vec<String>>, // issue_type -> allowed column names
+    pub transition_cache: std::collections::HashMap<String, Vec<String>>, // issue_key -> allowed column names
     pub theme_selected: usize,
     pub theme_confirmed: usize,
     pub header_bg_confirmed: bool,
@@ -766,9 +766,9 @@ impl App {
                     }
                 }
             }
-            AppMessage::DragTransitionsLoaded(issue_type, Ok(transitions)) => {
+            AppMessage::DragTransitionsLoaded(issue_key, Ok(transitions)) => {
                 let allowed: Vec<String> = transitions.iter().map(|t| t.to.name.clone()).collect();
-                self.transition_cache.insert(issue_type, allowed.clone());
+                self.transition_cache.insert(issue_key, allowed.clone());
                 if self.card_dragging.is_some() {
                     self.card_drag_transition_state = Some(DragTransitionState::Loaded(allowed));
                 }
@@ -814,6 +814,7 @@ impl App {
                 self.detail_editing = false;
             }
             AppMessage::TransitionDone(key, Ok(())) => {
+                self.transition_cache.remove(&key);
                 if self.card_drag_pending_transition {
                     // Drag-drop: optimistic UI already correct, don't reload
                     self.card_drag_pending_transition = false;
@@ -2544,12 +2545,12 @@ impl App {
                             issue_type: issue_type.clone(),
                         });
 
-                        if let Some(cached) = self.transition_cache.get(&issue_type) {
+                        if let Some(cached) = self.transition_cache.get(key) {
                             self.card_drag_transition_state = Some(DragTransitionState::Loaded(cached.clone()));
                         } else {
                             self.card_drag_transition_state = Some(DragTransitionState::Loading);
                             let issue_key = key.clone();
-                            let issue_type_clone = issue_type.clone();
+                            let issue_key_for_msg = key.clone();
                             let tx = self.message_tx.clone();
                             let client = self.http_client.clone();
                             let email = self.config.auth.email.clone().unwrap_or_default();
@@ -2559,7 +2560,7 @@ impl App {
                             tokio::spawn(async move {
                                 let provider = JiraProvider::new(client, base_url, email, token);
                                 let result = provider.get_transitions(&issue_key).await;
-                                let _ = tx.send(AppMessage::DragTransitionsLoaded(issue_type_clone, result));
+                                let _ = tx.send(AppMessage::DragTransitionsLoaded(issue_key_for_msg, result));
                             });
                         }
                         return;

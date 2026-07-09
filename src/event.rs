@@ -25,7 +25,7 @@ pub enum AppMessage {
     ColumnOrderLoaded(Result<Vec<String>, JiraError>),
     IssueDetailLoaded(String, Result<(String, IssueMetadata), JiraError>),
     TransitionsLoaded(String, Result<Vec<JiraTransition>, JiraError>),
-    DragTransitionsLoaded(String, Result<Vec<JiraTransition>, JiraError>), // (issue_type, transitions)
+    DragTransitionsLoaded(String, Result<Vec<JiraTransition>, JiraError>), // (issue_key, transitions)
     CommentsLoaded(String, Result<Vec<JiraComment>, JiraError>),
     TransitionDone(String, Result<(), JiraError>),
     ChangelogLoaded(String, Result<Vec<JiraChangelogEntry>, JiraError>),
