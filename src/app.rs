@@ -844,8 +844,9 @@ impl App {
                 self.create_modal.assignees = users;
                 self.create_modal.loading_assignees = false;
             }
-            AppMessage::AssignableUsersLoaded(Err(_)) => {
+            AppMessage::AssignableUsersLoaded(Err(e)) => {
                 self.create_modal.loading_assignees = false;
+                self.create_modal.error = Some(format!("Failed to load assignees: {}", e));
             }
             AppMessage::EpicsLoaded(Ok(epics)) => {
                 self.create_modal.epics = epics;
@@ -860,8 +861,9 @@ impl App {
                 self.create_modal.issue_type_idx = task_idx;
                 self.create_modal.loading_issue_types = false;
             }
-            AppMessage::IssueTypesLoaded(Err(_)) => {
+            AppMessage::IssueTypesLoaded(Err(e)) => {
                 self.create_modal.loading_issue_types = false;
+                self.create_modal.error = Some(format!("Failed to load issue types: {}", e));
             }
             AppMessage::IssueCreated(Ok(_key)) => {
                 self.create_modal_open = false;
@@ -1239,6 +1241,35 @@ impl App {
         }
     }
 
+    fn collect_tab_assignees(&self) -> Vec<crate::provider::types::JiraUser> {
+        let mut users: Vec<crate::provider::types::JiraUser> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        let issues: Vec<&crate::provider::types::JiraIssue> = match &self.active_tab {
+            Tab::List(id) => {
+                self.list_tabs.iter()
+                    .find(|t| t.id == *id)
+                    .map(|t| t.issues.iter().collect())
+                    .unwrap_or_default()
+            }
+            Tab::Board(board_id) => {
+                self.board_tabs.iter()
+                    .find(|t| t.board_id == *board_id)
+                    .map(|t| t.columns.iter().flat_map(|c| c.issues.iter()).collect())
+                    .unwrap_or_default()
+            }
+        };
+        for issue in issues {
+            if let Some(ref user) = issue.fields.assignee {
+                if !seen.contains(&user.account_id) {
+                    seen.push(user.account_id.clone());
+                    users.push(user.clone());
+                }
+            }
+        }
+        users.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+        users
+    }
+
     fn open_settings(&mut self) {
         self.settings_open = true;
         self.focus = FocusLayer::Settings;
@@ -1254,8 +1285,10 @@ impl App {
         self.create_modal = CreateModalState::default();
         self.create_panel_height = 0;
         self.focus = FocusLayer::CreateModal;
+        // Collect assignees from loaded issues in the active tab
+        self.create_modal.assignees = self.collect_tab_assignees();
+        self.create_modal.loading_assignees = false;
         if let Some(project_key) = self.active_project_key() {
-            self.load_assignable_users(project_key.clone());
             self.load_epics(project_key.clone());
             self.load_issue_types(project_key);
         }
@@ -2863,9 +2896,16 @@ impl App {
 
         let items: Vec<(String, String)> = match field {
             DetailField::Assignee => {
-                self.create_modal.assignees.iter()
-                    .map(|u| (u.account_id.clone(), u.display_name.clone()))
-                    .collect()
+                let tab_assignees = self.collect_tab_assignees();
+                if !tab_assignees.is_empty() {
+                    tab_assignees.iter()
+                        .map(|u| (u.account_id.clone(), u.display_name.clone()))
+                        .collect()
+                } else {
+                    self.create_modal.assignees.iter()
+                        .map(|u| (u.account_id.clone(), u.display_name.clone()))
+                        .collect()
+                }
             }
             DetailField::Parent => {
                 self.create_modal.epics.iter()
@@ -3211,15 +3251,8 @@ impl App {
                 }
                 Tab::Board(id) => {
                     if let Some(bt) = self.board_tabs.iter().find(|t| t.board_id == *id) {
-                        let project_key = self.tab_order.iter()
-                            .rev()
-                            .find_map(|t| if let Tab::List(lid) = t {
-                                self.list_tabs.iter().find(|lt| lt.id == *lid).map(|lt| lt.project_key.clone())
-                            } else { None })
-                            .or_else(|| self.projects.get(self.selected_project).map(|p| p.key.clone()))
-                            .unwrap_or_default();
                         current_tabs.push(OpenTab::Board {
-                            project_key,
+                            project_key: bt.project_key.clone(),
                             board_id: bt.board_id,
                             board_name: bt.board_name.clone(),
                         });
