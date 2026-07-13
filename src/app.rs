@@ -35,6 +35,7 @@ pub struct ListTab {
 pub struct BoardTab {
     pub board_id: u64,
     pub board_name: String,
+    pub project_key: String,
     pub columns: Vec<BoardColumn>,
     pub col_scroll: Vec<usize>,
     pub loading: bool,
@@ -489,10 +490,11 @@ impl App {
                         next_list_id = id + 1;
                     }
                 }
-                OpenTab::Board { board_id, board_name, .. } => {
+                OpenTab::Board { board_id, board_name, project_key } => {
                     board_tabs.push(BoardTab {
                         board_id: *board_id,
                         board_name: board_name.clone(),
+                        project_key: project_key.clone(),
                         columns: Vec::new(),
                         col_scroll: Vec::new(),
                         loading: true,
@@ -1266,21 +1268,11 @@ impl App {
                 .iter()
                 .find(|t| t.id == *id)
                 .map(|t| t.project_key.clone()),
-            Tab::Board(_board_id) => {
-                // Find nearest list tab project_key
-                let pos = self.tab_order.iter().position(|t| t == &self.active_tab);
-                if let Some(pos) = pos {
-                    for i in (0..pos).rev() {
-                        if let Tab::List(id) = &self.tab_order[i] {
-                            if let Some(lt) = self.list_tabs.iter().find(|t| t.id == *id) {
-                                return Some(lt.project_key.clone());
-                            }
-                        }
-                    }
-                }
-                // fallback: first list tab
-                self.list_tabs.first().map(|t| t.project_key.clone())
-            }
+            Tab::Board(board_id) => self
+                .board_tabs
+                .iter()
+                .find(|t| t.board_id == *board_id)
+                .map(|t| t.project_key.clone()),
         }
     }
 
@@ -1668,7 +1660,7 @@ impl App {
             self.add_list_tab(project_key.clone(), project_name);
         }
         for board in boards_to_add {
-            self.add_board_tab(board);
+            self.add_board_tab(board, project_key.clone());
         }
 
         // Close modals
@@ -2040,10 +2032,11 @@ impl App {
                         self.next_list_id = id + 1;
                     }
                 }
-                OpenTab::Board { board_id, board_name, .. } => {
+                OpenTab::Board { board_id, board_name, project_key } => {
                     self.board_tabs.push(BoardTab {
                         board_id: *board_id,
                         board_name: board_name.clone(),
+                        project_key: project_key.clone(),
                         columns: Vec::new(),
                         col_scroll: Vec::new(),
                         loading: true,
@@ -3179,7 +3172,7 @@ impl App {
         }
     }
 
-    fn add_board_tab(&mut self, board: JiraBoard) {
+    fn add_board_tab(&mut self, board: JiraBoard, project_key: String) {
         if self.board_tabs.iter().any(|t| t.board_id == board.id) {
             self.active_tab = Tab::Board(board.id);
             return;
@@ -3187,6 +3180,7 @@ impl App {
         let tab = BoardTab {
             board_id: board.id,
             board_name: board.name.clone(),
+            project_key,
             columns: Vec::new(),
             col_scroll: Vec::new(),
             loading: true,
