@@ -634,11 +634,12 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
             .find(|(_, f)| *f == edit.field)
             .map(|(a, _)| *a);
         if let Some(fa) = field_area {
+            let filtered = edit.filtered_items();
             let dropdown_x = fa.x;
             let dropdown_y = fa.y + fa.height;
             let max_visible = 5usize;
-            let count = edit.items.len().min(max_visible);
-            let h = count as u16 + 2;
+            let count = filtered.len().min(max_visible);
+            let h = count as u16 + 3; // +2 border +1 input row
             let dropdown_area = Rect { x: dropdown_x, y: dropdown_y, width: w, height: h };
 
             frame.render_widget(ratatui::widgets::Clear, dropdown_area);
@@ -649,20 +650,30 @@ fn render_metadata(frame: &mut Frame, app: &mut App, t: &Theme, issue: &JiraIssu
             let dd_inner = dd_block.inner(dropdown_area);
             frame.render_widget(dd_block, dropdown_area);
 
+            // Filter input row
+            let input_area = Rect { x: dd_inner.x, y: dd_inner.y, width: dd_inner.width, height: 1 };
+            let input_display = if edit.filter_input.is_empty() {
+                Span::styled("type to filter…", Style::default().fg(t.text_dim))
+            } else {
+                Span::styled(format!("/{}", edit.filter_input), Style::default().fg(t.accent))
+            };
+            frame.render_widget(Paragraph::new(input_display), input_area);
+
+            let list_y = dd_inner.y + 1;
             let scroll_start = if edit.selected >= max_visible {
                 edit.selected - max_visible + 1
             } else {
                 0
             };
 
-            for (i, idx) in (scroll_start..edit.items.len().min(scroll_start + max_visible)).enumerate() {
-                let item_area = Rect { x: dd_inner.x, y: dd_inner.y + i as u16, width: dd_inner.width, height: 1 };
-                let style = if idx == edit.selected {
+            for (i, list_idx) in (scroll_start..filtered.len().min(scroll_start + max_visible)).enumerate() {
+                let item_area = Rect { x: dd_inner.x, y: list_y + i as u16, width: dd_inner.width, height: 1 };
+                let style = if list_idx == edit.selected {
                     Style::default().fg(t.bg).bg(t.accent)
                 } else {
                     Style::default().fg(t.text)
                 };
-                let (_, ref display) = edit.items[idx];
+                let (_, (_, display)) = filtered[list_idx];
                 let text: String = if display.chars().count() > dd_inner.width as usize {
                     display.chars().take(dd_inner.width as usize - 1).collect::<String>() + "…"
                 } else {

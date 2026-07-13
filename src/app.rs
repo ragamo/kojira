@@ -90,6 +90,20 @@ pub struct DetailFieldEdit {
     pub field: DetailField,
     pub items: Vec<(String, String)>, // (id/key, display_name)
     pub selected: usize,
+    pub filter_input: String,
+}
+
+impl DetailFieldEdit {
+    pub fn filtered_items(&self) -> Vec<(usize, &(String, String))> {
+        if self.filter_input.is_empty() {
+            self.items.iter().enumerate().collect()
+        } else {
+            let query = self.filter_input.to_lowercase();
+            self.items.iter().enumerate()
+                .filter(|(_, (_, name))| name.to_lowercase().contains(&query))
+                .collect()
+        }
+    }
 }
 
 pub struct CreateModalState {
@@ -106,10 +120,31 @@ pub struct CreateModalState {
     pub active_field: CreateField,
     pub list_open: bool,
     pub list_scroll: usize,
+    pub list_filter: String,
     pub loading_assignees: bool,
     pub loading_epics: bool,
     pub saving: bool,
     pub error: Option<String>,
+}
+
+impl CreateModalState {
+    pub fn filtered_list_items(&self) -> Vec<(usize, String)> {
+        let items: Vec<String> = match self.active_field {
+            CreateField::Assignee => self.assignees.iter().map(|u| u.display_name.clone()).collect(),
+            CreateField::Epic => self.epics.iter().map(|e| format!("{} - {}", e.key, e.fields.summary)).collect(),
+            CreateField::Priority => crate::app::PRIORITIES.iter().map(|s| s.to_string()).collect(),
+            CreateField::IssueType => self.issue_types.clone(),
+            _ => Vec::new(),
+        };
+        if self.list_filter.is_empty() {
+            items.into_iter().enumerate().collect()
+        } else {
+            let query = self.list_filter.to_lowercase();
+            items.into_iter().enumerate()
+                .filter(|(_, name)| name.to_lowercase().contains(&query))
+                .collect()
+        }
+    }
 }
 
 impl Default for CreateModalState {
@@ -132,6 +167,7 @@ impl Default for CreateModalState {
             active_field: CreateField::Title,
             list_open: false,
             list_scroll: 0,
+            list_filter: String::new(),
             loading_assignees: false,
             loading_epics: false,
             saving: false,
@@ -1018,6 +1054,39 @@ impl App {
             KeyCode::Enter if matches!(self.active_tab, Tab::List(_)) && !self.detail_open => {
                 self.open_detail_from_backlog();
             }
+            KeyCode::Esc if self.detail_field_edit.is_some() => {
+                self.detail_field_edit = None;
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.detail_field_edit.is_some() => {
+                if let Some(ref mut edit) = self.detail_field_edit {
+                    let count = edit.filtered_items().len();
+                    if edit.selected < count.saturating_sub(1) {
+                        edit.selected += 1;
+                    }
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.detail_field_edit.is_some() => {
+                if let Some(ref mut edit) = self.detail_field_edit {
+                    if edit.selected > 0 {
+                        edit.selected -= 1;
+                    }
+                }
+            }
+            KeyCode::Enter if self.detail_field_edit.is_some() => {
+                self.confirm_detail_field_selection();
+            }
+            KeyCode::Char(c) if self.detail_field_edit.is_some() => {
+                if let Some(ref mut edit) = self.detail_field_edit {
+                    edit.filter_input.push(c);
+                    edit.selected = 0;
+                }
+            }
+            KeyCode::Backspace if self.detail_field_edit.is_some() => {
+                if let Some(ref mut edit) = self.detail_field_edit {
+                    edit.filter_input.pop();
+                    edit.selected = 0;
+                }
+            }
             KeyCode::Esc if self.detail_transition_open => {
                 self.detail_transition_open = false;
             }
@@ -1445,6 +1514,7 @@ impl App {
         if key.code == KeyCode::Esc {
             if self.create_modal.list_open {
                 self.create_modal.list_open = false;
+                self.create_modal.list_filter.clear();
             } else {
                 self.create_modal_open = false;
                 self.focus = FocusLayer::Main;
@@ -1453,40 +1523,46 @@ impl App {
         }
 
         if self.create_modal.list_open {
+            let filtered = self.create_modal.filtered_list_items();
+            let max = filtered.len().saturating_sub(1);
             match key.code {
                 KeyCode::Up => {
                     self.create_modal.list_scroll = self.create_modal.list_scroll.saturating_sub(1);
                 }
                 KeyCode::Down => {
-                    self.create_modal.list_scroll += 1;
-                    let max = match self.create_modal.active_field {
-                        CreateField::Assignee => self.create_modal.assignees.len().saturating_sub(1),
-                        CreateField::Epic => self.create_modal.epics.len().saturating_sub(1),
-                        CreateField::Priority => PRIORITIES.len().saturating_sub(1),
-                        CreateField::IssueType => self.create_modal.issue_types.len().saturating_sub(1),
-                        _ => 0,
-                    };
-                    if self.create_modal.list_scroll > max {
-                        self.create_modal.list_scroll = max;
+                    if self.create_modal.list_scroll < max {
+                        self.create_modal.list_scroll += 1;
                     }
                 }
                 KeyCode::Enter => {
-                    match self.create_modal.active_field {
-                        CreateField::Assignee => {
-                            self.create_modal.assignee_idx = Some(self.create_modal.list_scroll);
+                    let filtered = self.create_modal.filtered_list_items();
+                    if let Some(&(real_idx, _)) = filtered.get(self.create_modal.list_scroll) {
+                        match self.create_modal.active_field {
+                            CreateField::Assignee => {
+                                self.create_modal.assignee_idx = Some(real_idx);
+                            }
+                            CreateField::Epic => {
+                                self.create_modal.epic_idx = Some(real_idx);
+                            }
+                            CreateField::Priority => {
+                                self.create_modal.priority_idx = real_idx;
+                            }
+                            CreateField::IssueType => {
+                                self.create_modal.issue_type_idx = real_idx;
+                            }
+                            _ => {}
                         }
-                        CreateField::Epic => {
-                            self.create_modal.epic_idx = Some(self.create_modal.list_scroll);
-                        }
-                        CreateField::Priority => {
-                            self.create_modal.priority_idx = self.create_modal.list_scroll;
-                        }
-                        CreateField::IssueType => {
-                            self.create_modal.issue_type_idx = self.create_modal.list_scroll;
-                        }
-                        _ => {}
                     }
                     self.create_modal.list_open = false;
+                    self.create_modal.list_filter.clear();
+                }
+                KeyCode::Char(c) => {
+                    self.create_modal.list_filter.push(c);
+                    self.create_modal.list_scroll = 0;
+                }
+                KeyCode::Backspace => {
+                    self.create_modal.list_filter.pop();
+                    self.create_modal.list_scroll = 0;
                 }
                 _ => {}
             }
@@ -1537,13 +1613,8 @@ impl App {
             KeyCode::Enter => match self.create_modal.active_field {
                 CreateField::Assignee | CreateField::Epic | CreateField::Priority | CreateField::IssueType => {
                     self.create_modal.list_open = true;
-                    self.create_modal.list_scroll = match self.create_modal.active_field {
-                        CreateField::Assignee => self.create_modal.assignee_idx.unwrap_or(0),
-                        CreateField::Epic => self.create_modal.epic_idx.unwrap_or(0),
-                        CreateField::Priority => self.create_modal.priority_idx,
-                        CreateField::IssueType => self.create_modal.issue_type_idx,
-                        _ => 0,
-                    };
+                    self.create_modal.list_filter.clear();
+                    self.create_modal.list_scroll = 0;
                 }
                 CreateField::Save => {
                     self.submit_create_issue();
@@ -2932,7 +3003,7 @@ impl App {
                 let items: Vec<(String, String)> = PRIORITIES.iter()
                     .map(|p| (p.to_string(), p.to_string()))
                     .collect();
-                self.detail_field_edit = Some(DetailFieldEdit { field, items, selected: 0 });
+                self.detail_field_edit = Some(DetailFieldEdit { field, items, selected: 0, filter_input: String::new() });
                 self.detail_field_scroll = 0;
             }
             return;
@@ -2956,7 +3027,7 @@ impl App {
             }
         };
 
-        self.detail_field_edit = Some(DetailFieldEdit { field, items, selected: current_selected });
+        self.detail_field_edit = Some(DetailFieldEdit { field, items, selected: current_selected, filter_input: String::new() });
         self.detail_field_scroll = current_selected;
     }
 
@@ -2970,8 +3041,12 @@ impl App {
             Some(i) => i.key.clone(),
             None => return,
         };
-        let (id, display) = match edit.items.get(edit.selected) {
-            Some(item) => item.clone(),
+        let filtered = edit.filtered_items();
+        let (id, display) = match filtered.get(edit.selected) {
+            Some(&(real_idx, _)) => match edit.items.get(real_idx) {
+                Some(item) => item.clone(),
+                None => return,
+            },
             None => return,
         };
 

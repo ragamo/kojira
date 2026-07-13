@@ -194,38 +194,19 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Dropdown overlay (rendered last to be on top)
     if app.create_modal.list_open {
-        let (dropdown_x, dropdown_y, dropdown_w, items): (u16, u16, u16, Vec<String>) = match app.create_modal.active_field {
-            CreateField::Assignee => (
-                assignee_area.x,
-                assignee_area.y + assignee_area.height,
-                assignee_area.width,
-                app.create_modal.assignees.iter().map(|u| u.display_name.clone()).collect(),
-            ),
-            CreateField::Epic => (
-                epic_area.x,
-                epic_area.y + epic_area.height,
-                epic_area.width,
-                app.create_modal.epics.iter().map(|e| format!("{} - {}", e.key, e.fields.summary)).collect(),
-            ),
-            CreateField::Priority => (
-                priority_area.x,
-                priority_area.y + priority_area.height,
-                priority_area.width,
-                PRIORITIES.iter().map(|s| s.to_string()).collect(),
-            ),
-            CreateField::IssueType => (
-                issue_type_area.x,
-                issue_type_area.y + issue_type_area.height,
-                issue_type_area.width,
-                app.create_modal.issue_types.clone(),
-            ),
-            _ => (0, 0, 0, Vec::new()),
+        let (dropdown_x, dropdown_y, dropdown_w) = match app.create_modal.active_field {
+            CreateField::Assignee => (assignee_area.x, assignee_area.y + assignee_area.height, assignee_area.width),
+            CreateField::Epic => (epic_area.x, epic_area.y + epic_area.height, epic_area.width),
+            CreateField::Priority => (priority_area.x, priority_area.y + priority_area.height, priority_area.width),
+            CreateField::IssueType => (issue_type_area.x, issue_type_area.y + issue_type_area.height, issue_type_area.width),
+            _ => (0, 0, 0),
         };
 
-        if !items.is_empty() {
+        let filtered = app.create_modal.filtered_list_items();
+        if !filtered.is_empty() {
             let max_visible = 5usize;
-            let count = items.len().min(max_visible);
-            let h = count as u16 + 2;
+            let count = filtered.len().min(max_visible);
+            let h = count as u16 + 3; // +2 border +1 input row
             let dropdown_area = Rect { x: dropdown_x, y: dropdown_y, width: dropdown_w, height: h };
 
             frame.render_widget(Clear, dropdown_area);
@@ -236,20 +217,30 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             let dd_inner = dd_block.inner(dropdown_area);
             frame.render_widget(dd_block, dropdown_area);
 
+            // Filter input row
+            let input_area = Rect { x: dd_inner.x, y: dd_inner.y, width: dd_inner.width, height: 1 };
+            let input_display = if app.create_modal.list_filter.is_empty() {
+                Span::styled("type to filter…", Style::default().fg(t.text_dim))
+            } else {
+                Span::styled(format!("/{}", app.create_modal.list_filter), Style::default().fg(t.accent))
+            };
+            frame.render_widget(Paragraph::new(input_display), input_area);
+
+            let list_y = dd_inner.y + 1;
             let scroll_start = if app.create_modal.list_scroll >= max_visible {
                 app.create_modal.list_scroll - max_visible + 1
             } else {
                 0
             };
 
-            for (i, idx) in (scroll_start..items.len().min(scroll_start + max_visible)).enumerate() {
-                let item_area = Rect { x: dd_inner.x, y: dd_inner.y + i as u16, width: dd_inner.width, height: 1 };
-                let style = if idx == app.create_modal.list_scroll {
+            for (i, list_idx) in (scroll_start..filtered.len().min(scroll_start + max_visible)).enumerate() {
+                let item_area = Rect { x: dd_inner.x, y: list_y + i as u16, width: dd_inner.width, height: 1 };
+                let style = if list_idx == app.create_modal.list_scroll {
                     Style::default().fg(t.bg).bg(t.accent)
                 } else {
                     Style::default().fg(t.text)
                 };
-                let text = &items[idx];
+                let (_, ref text) = filtered[list_idx];
                 let display: String = if text.chars().count() > dd_inner.width as usize {
                     text.chars().take(dd_inner.width as usize - 1).collect::<String>() + "…"
                 } else {
